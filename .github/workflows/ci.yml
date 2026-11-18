@@ -23,14 +23,16 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import re
-          for name in ("dashboard", "secure_dashboard"):
-              page = Path(f"app/{name}.html").read_text(encoding="utf-8")
-              match = re.search(r"<script>(.*?)</script>", page, re.S)
-              assert match, f"Missing script in {name}"
-              Path(f"/tmp/merchantscope-{name}.js").write_text(match.group(1),encoding="utf-8")
+          page = Path("app/dashboard.html").read_text(encoding="utf-8")
+          match = re.search(r"<script>(.*?)</script>", page, re.S)
+          assert match, "Missing script in legacy dashboard"
+          Path("/tmp/merchantscope-dashboard.js").write_text(match.group(1),encoding="utf-8")
+          secured = Path("app/secure_dashboard.html").read_text(encoding="utf-8")
+          assert '<script src="/assets/secure-dashboard.js" defer></script>' in secured
+          assert not re.search(r"<script>(.*?)</script>", secured, re.S)
           PY
           node --check /tmp/merchantscope-dashboard.js
-          node --check /tmp/merchantscope-secure_dashboard.js
+          node --check app/secure_dashboard.js
 
   browser-smoke:
     runs-on: ubuntu-latest
