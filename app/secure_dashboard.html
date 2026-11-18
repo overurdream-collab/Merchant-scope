@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مرصد التجار | مساحة العمل الآمنة</title>
+<style>
+:root{font-family:system-ui,Tahoma,"Segoe UI",sans-serif;color:#19384a;background:#f1f6f8}*{box-sizing:border-box}
+body{margin:0;min-height:100vh}header{display:flex;justify-content:space-between;align-items:center;gap:20px;background:#102f46;color:#fff;padding:19px clamp(16px,4vw,58px);border-bottom:4px solid #1fa7a0}header strong{font-size:25px}header small{display:block;color:#a9cad1;margin-top:3px}
+main{max-width:1400px;margin:0 auto;padding:24px clamp(12px,3vw,34px)}
+h1{font-size:24px;margin:0 0 6px}h2{font-size:19px;margin:0 0 14px}h3{font-size:15px;margin:8px 0}
+button,input,textarea,select{font:inherit;border-radius:9px;padding:11px 12px}
+input,textarea,select{border:1px solid #cbdce2;background:#fff;color:#213c4a;width:100%;min-width:0}
+button{border:0;background:#087f80;color:#fff;cursor:pointer;font-weight:650;min-height:40px}
+button:hover:not(:disabled){filter:brightness(.94)}button:disabled{opacity:.5;cursor:wait}
+button.secondary{background:#e5f3f3;color:#15585b}button.danger{background:#b94d4d}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #18a6a6;outline-offset:2px}
+label{display:block;font-size:13px;font-weight:600;color:#496574;margin:8px 0 3px}
+article,section{border:1px solid #dce9ed;border-radius:15px;background:#fff;box-shadow:0 4px 20px #1031490a;padding:20px;margin-bottom:16px}
+.subtitle,.muted,small{color:#67818e;font-size:12px}.subtitle{font-size:14px}.auth{width:min(490px,100%);margin:6vh auto}
+.auth .stack>*{margin:5px 0}.stack{display:grid;gap:10px}
+.toolbar,.tabs,.flex{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.tabs{background:#fff;border-radius:12px;padding:10px;margin-bottom:20px;border:1px solid #e0ebee}
+.tabs button{background:#ecf4f5;color:#2d5867}.tabs button.active{background:#103d51;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px}.split{display:grid;grid-template-columns:350px minmax(0,1fr);gap:17px}
+.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.metric{border:1px solid #e1ebed;border-radius:13px;padding:15px;background:#f8fcfc}
+.metric b{display:block;font-size:27px;color:#096a76}.merchant-row{display:block;width:100%;text-align:right;background:#f2f8f9;color:#1a5260;margin-bottom:8px;border:1px solid #e0ecf0}
+.merchant-row.active{background:#176273;color:#fff}.evidence{border-bottom:1px solid #e3eded;padding:10px 0;overflow-wrap:anywhere}.evidence:last-child{border-bottom:0}
+details{border:1px solid #e3eff0;border-radius:10px;padding:12px;margin:12px 0}
+summary{cursor:pointer;font-weight:700}a{color:#087a80}#alerts{min-height:26px;margin-bottom:14px;white-space:pre-wrap}
+.notice{background:#edf8f6;border-inline-start:3px solid #219b99;padding:12px;border-radius:7px}
+pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;padding:12px;border-radius:8px;font-size:12px;overflow-wrap:anywhere}
+.panel[hidden],[hidden]{display:none!important}.tag{background:#e8f5f2;color:#176d66;border-radius:20px;font-size:12px;padding:3px 9px}
+.role{color:#9dded3;font-size:12px}.print-only{display:none}
+@media(max-width:900px){.split,.grid{grid-template-columns:1fr}.metric-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){header{display:block}.metric-grid{grid-template-columns:1fr}.auth{margin:12px auto}.tabs{overflow:auto;flex-wrap:nowrap}.tabs button{white-space:nowrap}}
+@media print{header,.tabs,.no-print,.auth,#alerts{display:none!important}.print-only{display:block}.panel{display:none!important}#merchantPanel{display:block!important}.split{display:block}#merchantListArea{display:none}main{padding:0}section{border:0;box-shadow:none}body{background:#fff}}
+</style></head><body>
+<header><div><strong>◈ مرصد التجار</strong><small>الاستخبارات التسويقية — مساحة العمل الآمنة (PostgreSQL)</small></div>
+<div class="toolbar"><span id="identity" class="role">غير مسجل الدخول</span><button class="secondary no-print" id="logout" hidden>تسجيل الخروج</button></div></header>
+<main><div id="alerts" role="status" aria-live="polite"></div>
+<section id="loginBox" class="auth"><h1>تسجيل الدخول</h1><p class="subtitle">صلاحيات مستقلة لكل مستخدم. يجب إنشاء حساب المؤسسة الأول بواسطة المسؤول من سطر الأوامر.</p>
+<form id="loginForm" class="stack">
+<label>البريد الإلكتروني<input name="email" type="email" autocomplete="username" required placeholder="user@example.org"></label>
+<label>كلمة المرور<input name="password" type="password" autocomplete="current-password" required minlength="12"></label>
+<label>معرّف المؤسسة (UUID)<input name="org_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false"></label>
+<button>الدخول إلى مرصد التجار</button></form>
+<p class="notice">لا تُحفظ كلمة المرور أو رمز الدخول في التخزين المحلي بالمتصفح. يتطلب تحديث الصفحة تسجيل دخول جديداً.</p></section>
+<div id="workspace" hidden>
+<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
+<div class="panel" id="overviewPanel"><section><p class="subtitle">MERCHANT INTELLIGENCE / v2</p><h1>لوحة الاستخبارات التسويقية</h1><p class="subtitle">كل مؤشر يصف بيانات مؤسستك فقط، ولا يشكل إحصاءً للسوق أو وعداً بمبيعات.</p>
+<div id="overviewMetrics" class="metric-grid"></div></section><div class="grid"><section><h2>حالة العمل</h2><p>أضف تاجراً، وثّق منشوراته وروابط الأدلة، أنشئ تقييماً، ثم أرسل التوصيات إلى مراجع مستقل.</p><p class="notice">لا تؤثر التوصيات غير المعتمدة على قرارات التواصل. لا يجري إرسال رسائل تلقائياً.</p></section><section><h2>حماية البيانات</h2><p>صلاحيات المؤسسات معزولة داخل PostgreSQL باستخدام سياسات RLS. مستخدم المحلل لا يمكنه اعتماد توصيته بنفسه.</p><p class="muted">يتطلب النشر العام تأمين TLS والأسرار ومراقبة الخادم واختبار الاستعادة.</p></section></div></div>
+<div class="panel" id="merchantPanel" hidden>
+<div class="split"><section id="merchantListArea"><h2>دليل التجار</h2><div id="merchantList"></div>
+<details id="createBox"><summary>إضافة تاجر جديد</summary><form class="stack" id="createForm"><input name="name" placeholder="اسم التاجر" required minlength="2"><input name="city" placeholder="المدينة" required><input name="category" placeholder="النشاط"><input name="market" placeholder="السوق"><input name="website" type="url" placeholder="https:// الموقع"><button>حفظ التاجر</button></form></details>
+</section><section><div id="merchantDetail"><p class="muted">اختر تاجراً من القائمة لعرض ملفه.</p></div></section></div></div>
+<div class="panel" id="reviewsPanel" hidden><section><h2>التوصيات بانتظار المراجعة</h2><p class="muted">تظهر التوصيات لمراجعين مستقلين. القرار يُسجل في PostgreSQL ولا يسمح بالاعتماد الذاتي.</p><div id="reviews"></div></section></div>
+<div class="panel" id="settingsPanel" hidden><section><h2>المؤسسة والمستخدم</h2><div id="meInfo"></div><p class="notice">هذه الواجهة لا تدعم التسجيل العام؛ إنشاء الحسابات وأدوار المؤسسات يتم عبر المسؤول وأوامر التهيئة.</p></section><section><h2>مصادر البيانات</h2><p>تدعم نسخة PostgreSQL الحالية إدخال الأدلة يدوياً، وتقييماً حسابياً حذراً. موصلات المنصات لا تُفعّل دون مفاتيح وحقوق وصول.</p><p class="muted">التعامل مع بيانات OpenStreetMap أو المحتوى الاجتماعي يتطلب الالتزام بالتراخيص وسياسات المنصات.</p></section></div>
+</div>
+</main><script>
+'use strict';
+const $=id=>document.getElementById(id);
+let token=null, me=null, merchants=[], selected=null, pending=[];
+function alertText(message,error=false){$('alerts').textContent=message;$('alerts').style.color=error?'#a74541':'#087f80';}
+async function api(path,method='GET',body){
+    const headers={'Accept':'application/json'};
+    if(token)headers.Authorization='Bearer '+token;
+    if(body)headers['Content-Type']='application/json';
+    const response=await fetch('/api/v2'+path,{method,headers,body:body?JSON.stringify(body):undefined,cache:'no-store'});
+    let result;try{result=await response.json()}catch{result={detail:'Invalid response'}}
+    if(!response.ok)throw Error(response.status+': '+String(result.detail??'Request failed').slice(0,250));
+    return result;
+}
+async function handle(callback){try{await callback()}catch(error){alertText(error.message,true)}}
+function textElement(tag,text,cls){const x=document.createElement(tag);x.textContent=String(text??'—');if(cls)x.className=cls;return x}
+function paragraph(parent,tag,text,cls){const p=textElement(tag,text,cls);parent.append(p);return p}
+function showPanel(id){document.querySelectorAll('.panel').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x.dataset.panel===id))}
+document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews()});
+$('loginForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
+    const f=Object.fromEntries(new FormData(e.target));
+    const result=await api('/login','POST',f);
+    token=result.access_token;
+    me=await api('/me');
+    $('loginBox').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;
+    $('identity').textContent=me.role+' | '+me.user_id.slice(0,8);
+    $('meInfo').textContent='المؤسسة: '+me.org_id+' — المستخدم: '+me.user_id+' — الدور: '+me.role;
+    e.target.reset();await refresh();
+    alertText('تم تسجيل الدخول. جميع البيانات معزولة حسب مؤسستك.');
+})};
+$('logout').onclick=()=>handle(async()=>{if(token)await api('/logout','POST');token=null;me=null;merchants=[];selected=null;$('workspace').hidden=true;$('loginBox').hidden=false;$('logout').hidden=true;$('identity').textContent='غير مسجل الدخول';alertText('انتهت الجلسة.');});
+$('refresh').onclick=refresh;
+async function refresh(){await handle(async()=>{
+    const result=await api('/merchants');merchants=result.merchants;
+    $('merchantList').replaceChildren();
+    for(const m of merchants){
+        const b=document.createElement('button');b.className='merchant-row'+(selected===m.id?' active':'');
+        b.textContent=m.name+' — '+m.city;b.onclick=()=>loadMerchant(m.id);$('merchantList').append(b);
+    }
+    if(!merchants.length)paragraph($('merchantList'),'p','لا يوجد تجار.','muted');
+    const reviews=await api('/reviews');pending=reviews.pending;
+    const metrics=[['تجار المؤسسة',merchants.length],['التوصيات المعلقة',pending.length],['المؤسسة',me.org_id.slice(0,8)]];
+    $('overviewMetrics').replaceChildren();
+    for(const [label,value] of metrics){const box=document.createElement('div');box.className='metric';paragraph(box,'small',label);paragraph(box,'b',value);$('overviewMetrics').append(box);}
+    await loadReviews();
+    if(selected)await loadMerchant(selected);
+})}
+$('createForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
+    const data=Object.fromEntries(new FormData(e.target));
+    for(const key of Object.keys(data))if(data[key]==='')delete data[key];
+    const result=await api('/merchants','POST',data);
+    e.target.reset();await refresh();selected=result.id;await loadMerchant(selected);alertText('تم تسجيل التاجر.');
+})};
+async function loadMerchant(id){await handle(async()=>{
+    const result=await api('/merchants/'+id);selected=id;
+    const merchant=result.merchant, detail=$('merchantDetail');detail.replaceChildren();
+    paragraph(detail,'h2',merchant.name);
+    paragraph(detail,'p',(merchant.category||'غير مصنف')+' — '+merchant.city,'muted');
+    const toolbar=document.createElement('div');toolbar.className='toolbar no-print';
+    const analyze=document.createElement('button');analyze.textContent='تحليل التسويق';
+    analyze.onclick=()=>handle(async()=>{
+        const value=await api('/merchants/'+id+'/analyze','POST');
+        await loadMerchant(id);await loadReviews();
+        alertText('تم إنشاء '+value.pending_recommendations.length+' توصيات للمراجعة.');
+    });
+    const print=document.createElement('button');print.textContent='طباعة الملف PDF';print.className='secondary';print.onclick=()=>window.print();
+    toolbar.append(analyze,print);detail.append(toolbar);
+    const score=result.assessments[0]?.result||null;
+    const box=document.createElement('div');box.className='metric-grid';
+    for(const [label,v] of [['الأدلة',result.evidence.length],['التقييم',score?.score??'غير متاح'],['التغطية',score?.coverage!=null?score.coverage+'%':'غير متاح']]){
+        const card=document.createElement('div');card.className='metric';paragraph(card,'small',label);paragraph(card,'b',v);box.append(card);
+    }detail.append(box);
+    paragraph(detail,'h3','الأدلة المنشورة');
+    for(const item of result.evidence){
+        const div=document.createElement('div');div.className='evidence';
+        const anchor=document.createElement('a');anchor.textContent=item.source_url;anchor.href=item.source_url;anchor.rel='noopener noreferrer';anchor.target='_blank';div.append(anchor);
+        paragraph(div,'p',item.body||'(لم يُدخل محتوى نصي)');
+        paragraph(div,'small','رُصد بتاريخ '+item.observed_at+' — '+(item.published_at?'نُشر '+item.published_at:'تاريخ النشر غير معروف'));
+        detail.append(div);
+    }
+    if(!result.evidence.length)paragraph(detail,'p','لا توجد أدلة بعد.','muted');
+    const form=document.createElement('form');form.className='stack no-print';
+    const heading=paragraph(form,'h3','إضافة دليل');
+    const inputs=[
+      ['platform','المنصة','text'],
+      ['source_url','رابط المنشور https://','url'],
+      ['observed_at','تاريخ الرصد','datetime-local'],
+      ['published_at','تاريخ النشر الموثق (اختياري)','datetime-local'],
+      ['text','نص المنشور','text']
+    ];
+    for(const [name,label,type] of inputs){
+        const field=document.createElement('label');field.textContent=label;
+        const input=document.createElement(name==='text'?'textarea':'input');input.name=name;if(name!=='text')input.type=type;
+        input.required=name==='platform'||name==='source_url'||name==='observed_at';field.append(input);form.append(field);
+    }
+    const send=document.createElement('button');send.textContent='حفظ الدليل';form.append(send);
+    form.onsubmit=e=>{e.preventDefault();handle(async()=>{
+        const body=Object.fromEntries(new FormData(form));
+        body.observed_at=new Date(body.observed_at).toISOString();
+        if(body.published_at)body.published_at=new Date(body.published_at).toISOString();else body.published_at=null;
+        if(!body.text)body.text=null;
+        await api('/merchants/'+id+'/evidence','POST',body);
+        await loadMerchant(id);alertText('تم حفظ مصدر الدليل.');
+    })};
+    detail.append(form);
+    paragraph(detail,'h3','التوصيات المحفوظة');
+    for(const rec of result.recommendations){
+        const div=document.createElement('div');div.className='evidence';
+        paragraph(div,'b',rec.problem);
+        paragraph(div,'p',rec.action);
+        paragraph(div,'span',rec.status,'tag');detail.append(div);
+    }
+})}
+async function loadReviews(){await handle(async()=>{
+    const data=await api('/reviews');pending=data.pending;
+    const root=$('reviews');root.replaceChildren();
+    if(!pending.length){paragraph(root,'p','لا توجد توصيات بانتظار المراجعة.','muted');return}
+    for(const item of pending){
+        const card=document.createElement('article');
+        paragraph(card,'h3',item.problem);paragraph(card,'p',item.action);
+        paragraph(card,'small','التاجر: '+item.merchant_id+' — صاحب الإنشاء: '+item.created_by);
+        const notes=document.createElement('textarea');notes.placeholder='ملاحظات مراجعة التوصية';notes.required=true;card.append(notes);
+        const actions=document.createElement('div');actions.className='toolbar';
+        for(const [decision,label] of [['approved','اعتماد'],['changes_requested','طلب تعديل'],['rejected','رفض']]){
+            const b=document.createElement('button');b.textContent=label;if(decision==='rejected')b.className='danger';if(decision==='changes_requested')b.className='secondary';
+            b.onclick=()=>handle(async()=>{
+                if(notes.value.trim().length<3){alertText('يجب كتابة سبب القرار',true);return}
+                await api('/recommendations/'+item.id+'/review','POST',{decision,notes:notes.value});
+                await loadReviews();alertText('تم تسجيل قرار المراجع.');
+            });
+            actions.append(b);
+        }
+        card.append(actions);root.append(card);
+    }
+})}
+</script></body></html>

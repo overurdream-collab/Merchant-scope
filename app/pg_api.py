@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import HTMLResponse
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Literal
 from psycopg.rows import dict_row
@@ -175,3 +177,8 @@ def review(rid:uuid.UUID,body:ReviewIn,authorization:str|None=Header(None)):
             if not record:raise HTTPException(404,"Pending recommendation not found")
             return record
     except Error as ex:raise HTTPException(403,"Independent reviewer with source evidence required") from ex
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def secured_dashboard():
+    """Public sign-in shell; API calls require verified per-user bearer token."""
+    return (Path(__file__).resolve().parent / "secure_dashboard.html").read_text(encoding="utf-8")

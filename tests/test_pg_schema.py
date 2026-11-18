@@ -131,6 +131,9 @@ def test_secure_api_full_merchant_review_cycle(pg,monkeypatch):
     pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
          (details["org_id"],reviewer))
     with TestClient(app) as c:
+        shell=c.get("/")
+        assert shell.status_code==200 and 'مرصد التجار' in shell.text
+        assert 'id="loginForm"' in shell.text
         res=c.post("/api/v2/login",json={"email":email,"password":"complex password string 123456","org_id":details["org_id"]})
         assert res.status_code==200,res.text
         token=res.json()["access_token"]
