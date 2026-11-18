@@ -89,7 +89,7 @@ def validate_draft(output, evidence):
         if not isinstance(item,dict):continue
         ids=item.get("evidence_ids",[])
         if not isinstance(ids,list):continue
-        ids=[i for i in ids if type(i) is int and i in allowed]
+        ids=[i for i in ids if type(i) in (int,str) and i in allowed]
         if not ids:continue
         problem=item.get("problem","")
         action=item.get("action","")
