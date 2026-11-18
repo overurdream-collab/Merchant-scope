@@ -308,3 +308,51 @@ def skill_catalog(x_admin_token: str | None = Header(None)):
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def dashboard():
     return (ROOT / "dashboard.html").read_text(encoding="utf-8")
+
+class ImportConfirmation(BaseModel):
+    # Submitted records are displayed in the UI preview first; a human confirms.
+    rows: list[Merchant]
+    confirm: bool = False
+
+@app.post("/api/import/commit")
+def import_merchants(data: ImportConfirmation, x_admin_token: str | None = Header(None)):
+    require(x_admin_token)
+    if not data.confirm: raise HTTPException(422, "Explicit manual confirmation is required")
+    if not 1 <= len(data.rows) <= 1000: raise HTTPException(422, "Provide 1 to 1000 records")
+    inserted=[]; duplicates=[]
+    with conn() as c:
+        for item in data.rows:
+            if item.website: check_url(item.website)
+            existing=c.execute("SELECT id FROM merchants WHERE normalized=? AND city=?", (normalized(item.name),item.city)).fetchone()
+            if existing:
+                duplicates.append({"name":item.name,"city":item.city,"id":existing["id"]})
+                continue
+            rid=c.execute("INSERT INTO merchants(name,normalized,city,governorate,category,market,website,public_contact,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (item.name,normalized(item.name),item.city,item.governorate,item.category,item.market,item.website,item.public_contact,now())).lastrowid
+            inserted.append(rid)
+            audit(c,"import","merchant",rid,{"source":"user_reviewed_csv"})
+        audit(c,"csv_import_completed","batch",0,{"inserted":len(inserted),"duplicates":len(duplicates)})
+    return {"inserted":len(inserted),"ids":inserted,"duplicates":duplicates}
+
+@app.get("/api/merchants/{mid}/proposal")
+def marketing_proposal(mid:int,x_admin_token:str|None=Header(None)):
+    require(x_admin_token)
+    with conn() as c:
+        m=merchant(c,mid)
+        approved=rows(c,"SELECT * FROM recommendations WHERE merchant_id=? AND status='approved' ORDER BY id",(mid,))
+        if not approved:
+            return {"status":"not_ready","reason":"A reviewer must approve at least one evidence-based recommendation before a proposal can be drafted.","merchant_id":mid}
+        items=[]
+        for r in approved:
+            try: ids=json.loads(r["evidence_ids"])
+            except (TypeError,ValueError): ids=[]
+            urls=[]
+            for eid in ids[:20]:
+                ev=c.execute("SELECT source_url,observed_at FROM evidence WHERE id=? AND merchant_id=?",(eid,mid)).fetchone()
+                if ev: urls.append({"url":ev["source_url"],"observed_at":ev["observed_at"]})
+            items.append({"problem":r["problem"],"action":r["action"],"rationale":r["rationale"],
+                          "priority":r["priority"],"source_evidence":urls})
+        return {"status":"draft_for_human_review","merchant":{"id":mid,"name":m["name"],"city":m["city"],"category":m["category"]},
+                "summary":"اقتراح خدمات تسويقية لمعالجة فجوات موثقة في العينة المرصودة",
+                "services":items,"next_step":"Review, edit, approve outreach separately. No messages are sent.",
+                "disclaimer":"Do not promise any uplift, lead count or sales figure without an independent measurement baseline."}

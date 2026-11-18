@@ -56,3 +56,9 @@ Open `http://127.0.0.1:8000/docs` for the API documentation. Supply the secret t
 - Additional API tests for market, comparison, permissions, and dashboard
 
 **Acceptance boundary:** This is a functional **local pilot**, not a production multi-user SaaS. Real market discovery, API-licensed platform collection, scheduled agents, independent security review, enterprise tenancy, PostgreSQL, and live production deployment remain outside this verified release. No fake live integrations. Do not expose the pilot service to the public internet.
+
+
+## Iteration 3 — explicit approved import & proposal generation
+- `POST /api/import/commit`: human-confirmed, bounded merchant bulk import (validated fields, deduplication and audit). This **does not** scrape external platforms.
+- `GET /api/merchants/{id}/proposal`: evidence-linked proposal draft **only from human-approved recommendations**. Never sends messages or makes performance promises.
+- Tests assert confirmation requirement, idempotent duplicates, unsafe-link validation and proposal prerequisites.
