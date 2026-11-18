@@ -112,3 +112,48 @@ def test_user_session_and_tenant_transaction(pg):
         assert db.execute("SELECT count(*) FROM ms.merchants").fetchone()[0]==1
     assert revoke_session(dsn,tok)
     assert resolve_session(dsn,tok) is None
+
+def test_secure_api_full_merchant_review_cycle(pg,monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin,hash_password
+    from uuid import uuid4
+    from datetime import datetime,timezone
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    email="analyst"+suffix+"@example.org"
+    details=bootstrap_admin(dsn,"Marketing "+suffix,email,"complex password string 123456")
+    reviewer=uuid4()
+    pg["db"].execute("INSERT INTO ms.user_accounts(id,email,password_hash) VALUES(%s,%s,%s)",
+         (reviewer,"reviewer"+suffix+"@example.org",hash_password("reviewer secret password 123456")))
+    pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
+         (details["org_id"],reviewer))
+    with TestClient(app) as c:
+        res=c.post("/api/v2/login",json={"email":email,"password":"complex password string 123456","org_id":details["org_id"]})
+        assert res.status_code==200,res.text
+        token=res.json()["access_token"]
+        H={"Authorization":"Bearer "+token}
+        assert c.get("/api/v2/me",headers=H).json()["role"]=="admin"
+        merchant=c.post("/api/v2/merchants",headers=H,json={"name":"المتجر التجريبي","city":"صنعاء","category":"تجزئة"})
+        assert merchant.status_code==201,merchant.text
+        mid=merchant.json()["id"]
+        for n in range(3):
+            at=datetime.now(timezone.utc).isoformat()
+            ev=c.post(f"/api/v2/merchants/{mid}/evidence",headers=H,json={"platform":"facebook","source_url":f"https://example.org/post/{n}","observed_at":at,"text":"منتج تجريبي"})
+            assert ev.status_code==201,ev.text
+        a=c.post(f"/api/v2/merchants/{mid}/analyze",headers=H)
+        assert a.status_code==200,a.text
+        assert len(a.json()["pending_recommendations"])>=1
+        rid=a.json()["pending_recommendations"][0]
+        assert c.post(f"/api/v2/recommendations/{rid}/review",headers=H,json={"decision":"approved","notes":"المراجعة"}).status_code==403
+        reviewer_token=c.post("/api/v2/login",json={"email":"reviewer"+suffix+"@example.org","password":"reviewer secret password 123456","org_id":details["org_id"]}).json()["access_token"]
+        R={"Authorization":"Bearer "+reviewer_token}
+        assert c.get("/api/v2/merchants",headers=R).status_code==200
+        assert c.post("/api/v2/merchants",headers=R,json={"name":"غير مسموح","city":"صنعاء"}).status_code==403
+        reviewed=c.post(f"/api/v2/recommendations/{rid}/review",headers=R,json={"decision":"approved","notes":"فحص الأدلة"})
+        assert reviewed.status_code==200,reviewed.text
+        assert c.get("/api/v2/merchants",headers=H).json()["merchants"]
+        assert c.post("/api/v2/logout",headers=H).json()["revoked"] is True
+        assert c.get("/api/v2/me",headers=H).status_code==401
