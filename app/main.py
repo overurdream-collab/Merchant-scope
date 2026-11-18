@@ -211,3 +211,100 @@ async def preview(file:UploadFile=File(...),x_admin_token:str|None=Header(None))
             result.append({"row":i+2,"name":name,"city":city,"status":status})
             seen.add(key)
     return {"preview":result,"committed":False}
+
+
+# The local pilot only: no unattended outbound marketing or unauthorized scraping.
+class MarketFilter(BaseModel):
+    city: str | None = None
+    category: str | None = None
+
+@app.get("/api/overview")
+def overview(x_admin_token: str | None = Header(None)):
+    require(x_admin_token)
+    with conn() as c:
+        def count(table, where="1=1"):
+            return c.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}").fetchone()[0]
+        return {"merchants": count("merchants"), "evidence":count("evidence"),
+                "assessments":count("assessments"), "pending_reviews":count("recommendations","status='pending_review'"),
+                "approved_recommendations":count("recommendations","status='approved'"),
+                "leads":count("leads"), "approved_outreach":count("leads","outreach_approved=1"),
+                "data_policy":"manually entered sources; no automated social platform access"}
+
+@app.get("/api/market")
+def market_overview(city: str | None = None, category: str | None = None,
+                    x_admin_token: str | None = Header(None)):
+    require(x_admin_token)
+    with conn() as c:
+        query="SELECT m.*, (SELECT COUNT(*) FROM evidence e WHERE e.merchant_id=m.id) evidence_count, (SELECT COUNT(*) FROM channels ch WHERE ch.merchant_id=m.id) channel_count FROM merchants m WHERE 1=1"
+        args=[]
+        if city: query+=" AND m.city=?"; args.append(city)
+        if category: query+=" AND m.category=?"; args.append(category)
+        group=rows(c, query+" ORDER BY m.name",args)
+        sectors={}
+        places={}
+        for m in group:
+            sectors[m["category"] or "غير مصنف"]=sectors.get(m["category"] or "غير مصنف",0)+1
+            places[m["city"] or "غير محدد"]=places.get(m["city"] or "غير محدد",0)+1
+        return {"merchants_count":len(group),"categories":sectors,"cities":places,
+                "merchants":group,"caveat":"Descriptive statistics for merchants entered in the local database only; NOT a census or market-share estimate."}
+
+@app.get("/api/compare")
+def compare(merchant_ids: str, x_admin_token: str | None = Header(None)):
+    require(x_admin_token)
+    try: ids=list(dict.fromkeys(int(x) for x in merchant_ids.split(",")))
+    except ValueError: raise HTTPException(422,"Comma-separated integer merchant IDs required")
+    if not 2 <= len(ids) <= 10: raise HTTPException(422,"Select between 2 and 10 merchants")
+    with conn() as c:
+        result=[]
+        for mid in ids:
+            m=merchant(c,mid)
+            a=c.execute("SELECT result,created_at FROM assessments WHERE merchant_id=? ORDER BY id DESC LIMIT 1",(mid,)).fetchone()
+            latest=json.loads(a["result"]) if a else None
+            result.append({"id":mid,"name":m["name"],"category":m["category"],"city":m["city"],
+                "assessment":latest,"assessment_at":a["created_at"] if a else None,
+                "evidence_count":c.execute("SELECT COUNT(*) FROM evidence WHERE merchant_id=?",(mid,)).fetchone()[0]})
+        return {"results":result,"caveat":"Comparisons are directional and only cover collected evidence. Missing assessments are unavailable; do not infer rankings."}
+
+@app.get("/api/opportunities")
+def opportunities(x_admin_token: str | None = Header(None)):
+    require(x_admin_token)
+    with conn() as c:
+        merchants=rows(c,"SELECT * FROM merchants ORDER BY id DESC")
+        out=[]
+        for m in merchants:
+            a=c.execute("SELECT result,created_at FROM assessments WHERE merchant_id=? ORDER BY id DESC LIMIT 1",(m["id"],)).fetchone()
+            assessed=json.loads(a["result"]) if a else None
+            approved=c.execute("SELECT COUNT(*) FROM recommendations WHERE merchant_id=? AND status='approved'",(m["id"],)).fetchone()[0]
+            lead=c.execute("SELECT stage,outreach_approved,notes FROM leads WHERE merchant_id=?",(m["id"],)).fetchone()
+            # A sales readiness rank is not a claim about revenue or business size.
+            score=None; reasons=[]
+            if assessed and assessed.get("score") is not None:
+                score=min(100,round((100-assessed["score"])*0.5 + assessed["confidence"]*0.2 + min(approved,3)*10))
+                reasons=[f"Observed marketing gap: {100-assessed['score']}/100",
+                         f"Evidence confidence: {assessed['confidence']}%",
+                         f"Approved recommendations: {approved}"]
+            out.append({"merchant_id":m["id"],"name":m["name"],"city":m["city"],
+                        "category":m["category"],"opportunity_score":score,
+                        "reasons":reasons,"lead_stage":lead["stage"] if lead else "new",
+                        "outreach_approved":bool(lead["outreach_approved"]) if lead else False})
+        out.sort(key=lambda x:(x["opportunity_score"] is None,-(x["opportunity_score"] or 0)))
+        return {"opportunities":out,"method":"Transparent heuristic for internal prioritization, not a sales probability."}
+
+@app.get("/api/skills")
+def skill_catalog(x_admin_token: str | None = Header(None)):
+    require(x_admin_token)
+    return {"status":"reference_only_not_executable",
+            "source":"https://github.com/boringmarketer/boring-marketing-skills",
+            "skills":[{"name":name,"purpose":purpose,"installed":False} for name,purpose in [
+                ("find-local-clients","Merchant discovery"),
+                ("competitive-intel","Competitor research"),
+                ("audience-research","Audience research"),
+                ("brand-voice","Brand messaging"),
+                ("positioning-angles","Positioning"),
+                ("pitch-the-fix","Proposals"),
+                ("performance-review","Performance assessment")]],
+            "rule":"Review, version-pin and audit each skill and its external calls before enabling execution."}
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def dashboard():
+    return (ROOT / "dashboard.html").read_text(encoding="utf-8")

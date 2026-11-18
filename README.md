@@ -44,3 +44,15 @@ Open `http://127.0.0.1:8000/docs` for the API documentation. Supply the secret t
 2. Complete Arabic RTL frontend and audit-friendly reporting; competitor comparisons and market intelligence.
 3. Version-pin and audit selected MIT-licensed boring-marketing-skills, connect authorized platforms.
 4. End-to-end acceptance, security scans, operational backups, monitoring and approval workflows.
+
+
+## Iteration 2 — Dashboard & intelligence endpoints
+- Arabic RTL browser dashboard at `/` (secret entered each session; not persisted)
+- Overview KPI endpoint, sample-limited market segmentation by city/category
+- Evidence-aware 2–10 merchant comparison without speculative ranking
+- Internal lead opportunity prioritization; score unavailable if evidence coverage is insufficient
+- Human-review queue & audit, CSV dedup preview, reports via browser print, safe external source links
+- Read-only marketing skill catalog: 7 proposed Boring Marketing Skills; **NOT installed/executed**
+- Additional API tests for market, comparison, permissions, and dashboard
+
+**Acceptance boundary:** This is a functional **local pilot**, not a production multi-user SaaS. Real market discovery, API-licensed platform collection, scheduled agents, independent security review, enterprise tenancy, PostgreSQL, and live production deployment remain outside this verified release. No fake live integrations. Do not expose the pilot service to the public internet.
