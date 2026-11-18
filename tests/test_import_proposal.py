@@ -25,5 +25,5 @@ def test_import_rejects_unsafe_source(c):
     r=c.post("/api/import/commit",headers=H,json={"confirm":True,"rows":[{"name":"مطعم","city":"صنعاء","website":"javascript:alert(1)"}]})
     assert r.status_code==422
 def test_import_and_proposal_auth(c):
-    assert c.post("/api/import/commit",json={"confirm":True,"rows":[{"name":"أ","city":"تعز"}]}).status_code==401 or True
+    assert c.post("/api/import/commit",json={"confirm":True,"rows":[{"name":"مؤسسة القاهرة","city":"تعز"}]}).status_code==401
     assert c.get("/api/merchants/1/proposal").status_code==401

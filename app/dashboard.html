@@ -51,4 +51,48 @@ async function skills(){await handle(async()=>{let x=await request('/skills');$(
 $('csvForm').onsubmit=e=>{e.preventDefault();handle(async()=>{$('csvOut').textContent=JSON.stringify(await request('/import/preview','POST',new FormData(e.target)),null,2)})};
 $('auditRun').onclick=()=>handle(async()=>{$('auditOut').textContent=JSON.stringify(await request('/audit'),null,2)});
 $('export').onclick=()=>handle(async()=>{let r=await fetch('/api/export.csv',{headers:{'X-Admin-Token':$('secret').value}});if(!r.ok)throw Error('تعذر التصدير');let a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download='merchants.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)});
+
+/* Human-confirmed merchant import: previews are data, not instructions. */
+let importPreview=[];
+$('csvForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
+ const result=await request('/import/preview','POST',new FormData(e.target));
+ importPreview=result.preview;
+ $('csvOut').textContent=JSON.stringify(result,null,2);
+ if(document.getElementById('commitCsv'))document.getElementById('commitCsv').remove();
+ let good=importPreview.filter(x=>x.status==='new' && x.city && x.name);
+ if(good.length){
+ const b=document.createElement('button');b.id='commitCsv';b.className='secondary';b.textContent='اعتماد إدخال '+good.length+' تاجر بعد فحص المعاينة';
+ $('csvOut').insertAdjacentElement('afterend',b);
+ b.onclick=()=>handle(async()=>{
+  if(!confirm('تأكيد إدخال '+good.length+' تاجراً من معاينة CSV؟ لا يُجرى أي جمع تلقائي.'))return;
+  const outcome=await request('/import/commit','POST',{confirm:true,rows:good.map(x=>({name:x.name,city:x.city}))});
+  notice('تم إدخال '+outcome.inserted+' تاجر؛ التكرارات: '+outcome.duplicates.length);
+  b.remove();await reload();
+ });
+ }
+})};
+const renderDossierOriginal=showMerchant;
+showMerchant=async function(id){
+ await renderDossierOriginal(id);
+ const holder=$('dossier');
+ const b=document.createElement('button');b.className='secondary no-print';b.textContent='إعداد مسودة عرض تسويقي من توصيات معتمدة';
+ b.onclick=()=>handle(async()=>{
+  const proposal=await request('/merchants/'+id+'/proposal');
+  let area=document.getElementById('proposalDraft');
+  if(!area){area=document.createElement('section');area.id='proposalDraft';holder.append(area)}
+  area.replaceChildren();
+  const heading=document.createElement('h3');heading.textContent='مسودة العرض التسويقي — للمراجعة فقط';area.append(heading);
+  if(proposal.status!=='draft_for_human_review'){const p=document.createElement('p');p.textContent='لا توجد توصيات معتمدة تكفي لإعداد عرض تسويقي.';area.append(p);return}
+  const intro=document.createElement('p');intro.textContent=proposal.merchant.name+' — '+proposal.summary;area.append(intro);
+  for(const s of proposal.services){
+   const block=document.createElement('div');block.className='item';
+   const title=document.createElement('strong');title.textContent=s.problem;block.append(title);
+   const action=document.createElement('p');action.textContent=s.action;block.append(action);
+   for(const source of s.source_evidence){const a=document.createElement('a');a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='دليل: '+source.url;block.append(a);block.append(document.createElement('br'))}
+   area.append(block);
+  }
+  const note=document.createElement('small');note.textContent='مسودة غير مرسلة؛ تتطلب موافقة بشرية مستقلة قبل التواصل. لا تتضمن وعوداً بنتائج أو مبيعات.';area.append(note);
+ });
+ holder.prepend(b);
+};
 </script></body></html>
