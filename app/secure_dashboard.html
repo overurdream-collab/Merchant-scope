@@ -43,7 +43,7 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <button>الدخول إلى مرصد التجار</button></form>
 <p class="notice">لا تُحفظ كلمة المرور أو رمز الدخول في التخزين المحلي بالمتصفح. يتطلب تحديث الصفحة تسجيل دخول جديداً.</p></section>
 <div id="workspace" hidden>
-<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="reportPanel">التقارير</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
+<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="reportPanel">التقارير</button><button data-panel="leadPanel">الفرص البيعية</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
 <div class="panel" id="overviewPanel"><section><p class="subtitle">MERCHANT INTELLIGENCE / v2</p><h1>لوحة الاستخبارات التسويقية</h1><p class="subtitle">كل مؤشر يصف بيانات مؤسستك فقط، ولا يشكل إحصاءً للسوق أو وعداً بمبيعات.</p>
 <div id="overviewMetrics" class="metric-grid"></div></section><div class="grid"><section><h2>حالة العمل</h2><p>أضف تاجراً، وثّق منشوراته وروابط الأدلة، أنشئ تقييماً، ثم أرسل التوصيات إلى مراجع مستقل.</p><p class="notice">لا تؤثر التوصيات غير المعتمدة على قرارات التواصل. لا يجري إرسال رسائل تلقائياً.</p></section><section><h2>حماية البيانات</h2><p>صلاحيات المؤسسات معزولة داخل PostgreSQL باستخدام سياسات RLS. مستخدم المحلل لا يمكنه اعتماد توصيته بنفسه.</p><p class="muted">يتطلب النشر العام تأمين TLS والأسرار ومراقبة الخادم واختبار الاستعادة.</p></section></div></div>
 <div class="panel" id="merchantPanel" hidden>
@@ -63,6 +63,10 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <div id="reportItems"></div>
 <p id="reportDisclaimer" class="muted"></p>
 </section></div>
+<div class="panel" id="leadPanel" hidden><section>
+<h2>الفرص البيعية — باعتماد مستقل</h2>
+<p class="muted">درجة الفرصة تعتمد على الأدلة المعروفة، وليست احتمال تحقيق المبيعات. لا يقوم النظام بأي تواصل تلقائي.</p>
+<div id="leadItems"></div></section></div>
 <div class="panel" id="settingsPanel" hidden><section><h2>المؤسسة والمستخدم</h2><div id="meInfo"></div><p class="notice">هذه الواجهة لا تدعم التسجيل العام؛ إنشاء الحسابات وأدوار المؤسسات يتم عبر المسؤول وأوامر التهيئة.</p></section><section><h2>مصادر البيانات</h2><p>تدعم نسخة PostgreSQL الحالية إدخال الأدلة يدوياً، وتقييماً حسابياً حذراً. موصلات المنصات لا تُفعّل دون مفاتيح وحقوق وصول.</p><p class="muted">التعامل مع بيانات OpenStreetMap أو المحتوى الاجتماعي يتطلب الالتزام بالتراخيص وسياسات المنصات.</p></section></div>
 </div>
 </main><script>
@@ -83,7 +87,7 @@ async function handle(callback){try{await callback()}catch(error){alertText(erro
 function textElement(tag,text,cls){const x=document.createElement(tag);x.textContent=String(text??'—');if(cls)x.className=cls;return x}
 function paragraph(parent,tag,text,cls){const p=textElement(tag,text,cls);parent.append(p);return p}
 function showPanel(id){document.querySelectorAll('.panel').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x.dataset.panel===id))}
-document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews();if(x.dataset.panel==='reportPanel')loadPortfolio()});
+document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews();if(x.dataset.panel==='reportPanel')loadPortfolio();if(x.dataset.panel==='leadPanel')loadLeads()});
 $('loginForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
     const f=Object.fromEntries(new FormData(e.target));
     const result=await api('/login','POST',f);
@@ -254,4 +258,64 @@ $('printReport').onclick=()=>{
  window.addEventListener('afterprint',clean,{once:true});
  window.print();
 };
+
+async function loadLeads(){
+ await handle(async()=>{
+  const result=await api('/opportunities');
+  const root=$('leadItems');root.replaceChildren();
+  if(!result.opportunities.length){paragraph(root,'p','لم تُدرج أي فرص بعد.','muted');return;}
+  for(const item of result.opportunities){
+    const card=document.createElement('article');
+    paragraph(card,'h3',item.name+' — '+item.city);
+    paragraph(card,'p','فرصة تسويقية: '+(item.opportunity_score===null?'غير متاح':item.opportunity_score)+
+       ' • توصيات معتمدة: '+item.approved_recommendations);
+    paragraph(card,'p','المرحلة: '+item.stage+' • التواصل معتمد: '+(item.outreach_approved?'نعم':'لا'),'muted');
+    const controls=document.createElement('div');controls.className='toolbar no-print';
+    if(me.role==='reviewer'||me.role==='admin'){
+      const approve=document.createElement('button');
+      approve.textContent=item.outreach_approved?'إلغاء موافقة التواصل':'موافقة المراجع على التواصل';
+      approve.className='secondary';
+      approve.onclick=()=>handle(async()=>{
+         if(!confirm('هل راجعت المصادر والمبررات لهذا التاجر؟ القرار سيُسجل على حسابك.'))return;
+         await api('/merchants/'+item.merchant_id+'/outreach-approval','POST',{approved:!item.outreach_approved});
+         await loadLeads();alertText('حُفظ قرار الموافقة دون إرسال أي رسالة.');
+      });controls.append(approve);
+    }
+    if(me.role==='analyst'||me.role==='admin'){
+       const stage=document.createElement('select');
+       for(const [id,label] of [['new','جديد'],['qualified','مؤهل'],['contacted','تم التواصل'],['proposal','عرض مقدم'],['won','مكتسب'],['lost','مفقود']]){
+         const opt=document.createElement('option');opt.value=id;opt.textContent=label;stage.append(opt);
+       }
+       stage.value=item.stage;
+       const save=document.createElement('button');save.textContent='حفظ المرحلة';
+       save.onclick=()=>handle(async()=>{
+           await api('/merchants/'+item.merchant_id+'/lead','POST',{stage:stage.value});
+           await loadLeads();alertText('تم حفظ المرحلة');
+       });
+       controls.append(stage,save);
+    }
+    const proposal=document.createElement('button');proposal.textContent='مسودة عرض من توصيات معتمدة';proposal.className='secondary';
+    proposal.onclick=()=>handle(async()=>{
+       const x=await api('/merchants/'+item.merchant_id+'/proposal');
+       const existing=card.querySelector('.proposal-output');
+       if(existing)existing.remove();
+       const out=document.createElement('div');out.className='proposal-output';
+       if(x.status!=='draft_for_human_review'){paragraph(out,'p','لا يمكن إعداد عرض حتى تُعتمد توصية موثّقة.','muted');}
+       else {
+         paragraph(out,'h3','مسودة عرض للمراجعة فقط');
+         for(const service of x.services){
+           const block=document.createElement('div');block.className='evidence';
+           paragraph(block,'b',service.problem);paragraph(block,'p',service.action);
+           for(const source of service.sources){
+             const a=document.createElement('a');a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=source.url;block.append(a);
+           }out.append(block);
+         }
+         paragraph(out,'small','لا تتضمن هذه المسودة ضمانات عائد ولا ترسل رسائل.');
+       }
+       card.append(out);
+    });controls.append(proposal);
+    card.append(controls);root.append(card);
+  }
+ });
+}
 </script></body></html>
