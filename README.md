@@ -66,3 +66,7 @@ Open `http://127.0.0.1:8000/docs` for the API documentation. Supply the secret t
 ## Optional local AI agent (Ollama)
 To run local model-assisted drafting, start Ollama on **127.0.0.1:11434**, install a model with sufficient Arabic proficiency, then set `MERCHANTSCOPE_OLLAMA_MODEL` to its exact name. API: `POST /api/merchants/{id}/agent-draft` with `{"mode":"content"|"audience"|"competition"|"prospecting"|"proposal"}`. Model must return JSON citing existing evidence IDs. Invalid or unsupported citations are rejected, and any valid drafts remain `pending_review`. **No sending, publishing, or financial effect is performed by this endpoint.**
 Upstream marketing skills are **conceptually mapped**, not blindly installed or executed. See `docs/MARKETING_SKILLS.md`.
+
+
+## Secure PostgreSQL preview
+The independent Arabic RTL PostgreSQL user interface is at `app/secure_dashboard.html`, served by `app.pg_api:app`. Apply SQL migrations `db/postgres/001_init.sql` and `002_identity.sql`, offline-bootstrap an admin using `scripts/bootstrap_pg.py`, configure `MERCHANTSCOPE_AUTH_DSN` and `MERCHANTSCOPE_DATA_DSN`, and run `uvicorn app.pg_api:app --host 127.0.0.1 --port 8788`. This is a developer preview, not approved for public network deployment. Browser acceptance uses synthetic data. See docs/SECURE_API_V2.md and docs/REQUIREMENTS_TRACEABILITY.md.

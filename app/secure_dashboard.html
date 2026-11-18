@@ -169,6 +169,7 @@ async function loadMerchant(id){await handle(async()=>{
         paragraph(div,'span',rec.status,'tag');detail.append(div);
     }
 })}
+const reviewDrafts=new Map();
 let reviewLoadSequence=0;
 async function loadReviews(){
     const sequence=++reviewLoadSequence;
@@ -182,13 +183,18 @@ async function loadReviews(){
         const card=document.createElement('article');
         paragraph(card,'h3',item.problem);paragraph(card,'p',item.action);
         paragraph(card,'small','التاجر: '+item.merchant_id+' — صاحب الإنشاء: '+item.created_by);
-        const notes=document.createElement('textarea');notes.placeholder='ملاحظات مراجعة التوصية';notes.required=true;card.append(notes);
+        const notes=document.createElement('textarea');
+        notes.placeholder='ملاحظات مراجعة التوصية';notes.required=true;
+        notes.value=reviewDrafts.get(String(item.id))||'';
+        notes.addEventListener('input',()=>reviewDrafts.set(String(item.id),notes.value));
+        card.append(notes);
         const actions=document.createElement('div');actions.className='toolbar';
         for(const [decision,label] of [['approved','اعتماد'],['changes_requested','طلب تعديل'],['rejected','رفض']]){
             const b=document.createElement('button');b.textContent=label;if(decision==='rejected')b.className='danger';if(decision==='changes_requested')b.className='secondary';
             b.onclick=()=>handle(async()=>{
                 if(notes.value.trim().length<3){alertText('يجب كتابة سبب القرار',true);return}
                 await api('/recommendations/'+item.id+'/review','POST',{decision,notes:notes.value});
+                reviewDrafts.delete(String(item.id));
                 await loadReviews();alertText('تم تسجيل قرار المراجع.');
             });
             actions.append(b);
