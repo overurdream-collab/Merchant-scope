@@ -57,7 +57,8 @@ button:hover:not(:disabled){transform:translateY(-1px)}
 <section id="dossier"><p class="muted">اختر تاجراً لعرض ملف الأدلة والتحليل والمراجعة.</p></section></div>
 <div id="market" class="panel hidden"><section><h2>تحليل السوق والعينة</h2><div class="flex"><input id="marketCity" placeholder="مدينة (اختياري)"><input id="marketCategory" placeholder="نشاط (اختياري)"><button id="marketRun">تحليل العينة</button></div><p class="muted">النتائج تصف التجار المسجلين في النظام فقط، وليست تقديراً لحصة السوق.</p><div id="marketResult"></div></section><section><h2>مقارنة التجار</h2><div class="flex"><input id="compareIds" placeholder="أرقام التجار، مثال: 1,2" style="min-width:240px"><button id="compareRun">مقارنة</button></div><div id="comparison"></div></section></div>
 <div id="opportunities" class="panel hidden"><section><h2>ترتيب الفرص البيعية</h2><p class="muted">درجة داخلية للتوجيه فقط؛ ليست احتمال نجاح البيع أو توقع الإيراد.</p><div id="opportunityList"></div></section></div>
-<div id="review" class="panel hidden"><section><h2>التوصيات التي تنتظر الموافقة</h2><p class="muted">راجع المصدر بنفسك واكتب سبب القرار. لا يمكن اعتماد التوصية مرتين.</p><div id="reviewList"></div></section></div>
+<div id="review" class="panel hidden"><section><h2>التوصيات التي تنتظر الموافقة</h2><p class="muted">راجع المصدر بنفسك واكتب سبب القرار. لا يمكن اعتماد التوصية مرتين.</p><div id="reviewList"></div></section>
+<section><h2>التوصيات المطلوب تعديلها</h2><p class="muted">يستطيع المحلل تعديل التوصية وإعادة تقديمها للمراجع. يحتفظ سجل التدقيق بالنسخة السابقة وملاحظات المراجع.</p><div id="revisionList"></div></section></div>
 <div id="reports" class="panel hidden">
   <section class="report-header">
     <div><p class="eyebrow">INTELLIGENCE REPORTS</p><h2>التقارير والتحليلات التسويقية</h2>
@@ -296,4 +297,56 @@ function printWithMode(mode){
 }
 function printMerchant(){printWithMode('print-merchant')}
 function printPortfolio(){printWithMode('print-portfolio')}
+
+async function loadRevisionRequests(){
+    await handle(async()=>{
+        const items=await request('/recommendations/changes');
+        const holder=$('revisionList');holder.replaceChildren();
+        if(!items.length){
+            const empty=document.createElement('p');empty.className='muted';empty.textContent='لا توجد توصيات تتطلب تعديلاً.';holder.append(empty);return;
+        }
+        for(const item of items){
+            const card=document.createElement('div');card.className='item';
+            const title=document.createElement('h3');title.textContent='تاجر رقم '+item.merchant_id+' — '+item.problem;card.append(title);
+            const note=document.createElement('p');note.className='muted';note.textContent='تعليق المراجع: '+(item.review_notes||'لا يوجد');card.append(note);
+            const form=document.createElement('form');form.className='stack';
+            const fields=[
+              ['problem','المشكلة',item.problem,'input'],
+              ['action','الإجراء المقترح',item.action,'textarea'],
+              ['rationale','المبررات',item.rationale||'','textarea'],
+              ['evidence_ids','أرقام الأدلة مفصولة بفواصل',JSON.parse(item.evidence_ids||'[]').join(','),'input']
+            ];
+            const controls={};
+            for(const [name,label,initial,tag] of fields){
+                const caption=document.createElement('label');caption.textContent=label;
+                const control=document.createElement(tag);control.name=name;control.value=initial;control.required=name!=='rationale';
+                caption.append(control);form.append(caption);controls[name]=control;
+            }
+            const sel=document.createElement('select');
+            for(const p of ['high','medium','low']){
+                const opt=document.createElement('option');opt.value=p;opt.textContent={high:'عالية',medium:'متوسطة',low:'منخفضة'}[p];sel.append(opt);
+            }
+            sel.value=item.priority||'medium';form.append(sel);
+            const button=document.createElement('button');button.type='submit';button.textContent='إعادة إرسال للمراجعة';form.append(button);
+            form.onsubmit=e=>{e.preventDefault();handle(async()=>{
+                const ids=controls.evidence_ids.value.split(',').map(s=>Number(s.trim()));
+                if(!ids.length || ids.some(x=>!Number.isSafeInteger(x)||x<=0)){notice('راجع أرقام الأدلة',true);return;}
+                button.disabled=true;
+                try{
+                    await request('/recommendations/'+item.id+'/resubmit','POST',{
+                        problem:controls.problem.value,action:controls.action.value,
+                        rationale:controls.rationale.value,priority:sel.value,evidence_ids:ids
+                    });
+                    await reload();notice('تمت إعادة التوصية إلى قائمة المراجعة');
+                }finally{button.disabled=false;}
+            })};
+            card.append(form);holder.append(card);
+        }
+    });
+}
+const baseReloadForRevisions=reload;
+reload=async function(){
+    await baseReloadForRevisions();
+    if($('secret').value) await loadRevisionRequests();
+};
 </script></body></html>

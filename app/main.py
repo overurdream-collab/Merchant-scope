@@ -106,6 +106,13 @@ class Evidence(BaseModel):
 class Review(BaseModel):
     decision: Literal["approved","rejected","changes_requested"]
     notes: str = Field(min_length=3)
+
+class RecommendationRevision(BaseModel):
+    problem: str = Field(min_length=5,max_length=300)
+    action: str = Field(min_length=5,max_length=1000)
+    rationale: str | None = Field(default=None,max_length=1000)
+    priority: Literal["high","medium","low"]="medium"
+    evidence_ids: list[int] = Field(min_length=1,max_length=20)
 class Lead(BaseModel):
     stage: Literal["new","qualified","contacted","proposal","won","lost"]
     notes: str|None = None
@@ -200,9 +207,17 @@ def pending_reviews(x_admin_token:str|None=Header(None)):
 def review(rid:int,data:Review,x_admin_token:str|None=Header(None)):
     require(x_admin_token,role="reviewer")
     with conn() as c:
-        r=c.execute("SELECT status FROM recommendations WHERE id=?",(rid,)).fetchone()
+        r=c.execute("SELECT status,merchant_id,evidence_ids FROM recommendations WHERE id=?",(rid,)).fetchone()
         if not r: raise HTTPException(404,"Recommendation not found")
         if r["status"]!="pending_review": raise HTTPException(409,"Recommendation was already reviewed")
+        if data.decision=="approved":
+            try: ids=json.loads(r["evidence_ids"])
+            except (TypeError,ValueError): ids=[]
+            if not ids or any(type(i) is not int for i in ids):
+                raise HTTPException(422,"Evidence citations required before approval")
+            known={row["id"] for row in rows(c,"SELECT id FROM evidence WHERE merchant_id=?",(r["merchant_id"],))}
+            if not set(ids).issubset(known):
+                raise HTTPException(422,"Referenced evidence is not part of this merchant")
         c.execute("UPDATE recommendations SET status=?,review_notes=?,reviewed_at=? WHERE id=?",(data.decision,data.notes,now(),rid))
         audit(c,data.decision,"recommendation",rid,{"notes":data.notes})
         return {"status":data.decision}
@@ -493,3 +508,30 @@ def merchant_report(mid:int,x_admin_token:str|None=Header(None)):
     require(x_admin_token,role="viewer")
     with conn() as c:
         return reporting.merchant_snapshot(c,merchant(c,mid))
+
+@app.get("/api/recommendations/changes")
+def revision_requests(x_admin_token: str|None=Header(None)):
+    require(x_admin_token,role="viewer")
+    with conn() as c:
+        return rows(c, "SELECT * FROM recommendations WHERE status='changes_requested' ORDER BY id DESC")
+
+@app.post("/api/recommendations/{rid}/resubmit")
+def resubmit_recommendation(rid:int,data:RecommendationRevision,x_admin_token: str|None=Header(None)):
+    require(x_admin_token)
+    with conn() as c:
+        previous=c.execute("SELECT * FROM recommendations WHERE id=?",(rid,)).fetchone()
+        if not previous: raise HTTPException(404,"Recommendation not found")
+        if previous["status"] != "changes_requested":
+            raise HTTPException(409,"Only changes_requested recommendations may be resubmitted")
+        valid={x["id"] for x in rows(c,"SELECT id FROM evidence WHERE merchant_id=?",(previous["merchant_id"],))}
+        if not set(data.evidence_ids).issubset(valid):
+            raise HTTPException(422,"All evidence IDs must belong to the merchant")
+        # Preserve the full previous recommendation and reviewer decision in immutable audit data.
+        before={k:previous[k] for k in ("problem","action","rationale","priority","evidence_ids","status","review_notes","reviewed_at")}
+        c.execute("""UPDATE recommendations SET problem=?,action=?,rationale=?,priority=?,evidence_ids=?,
+                     status='pending_review',review_notes=NULL,reviewed_at=NULL WHERE id=?""",
+                  (data.problem,data.action,data.rationale,data.priority,json.dumps(sorted(set(data.evidence_ids))),rid))
+        audit(c,"resubmission","recommendation",rid,{"before":before,
+              "after":{"problem":data.problem,"action":data.action,"rationale":data.rationale,
+                       "priority":data.priority,"evidence_ids":sorted(set(data.evidence_ids))}})
+        return {"id":rid,"status":"pending_review","audit_recorded":True}
