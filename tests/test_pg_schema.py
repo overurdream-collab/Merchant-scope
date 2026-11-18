@@ -160,3 +160,24 @@ def test_secure_api_full_merchant_review_cycle(pg,monkeypatch):
         assert c.get("/api/v2/merchants",headers=H).json()["merchants"]
         assert c.post("/api/v2/logout",headers=H).json()["revoked"] is True
         assert c.get("/api/v2/me",headers=H).status_code==401
+
+def test_admin_can_provision_independent_reviewer_offline(pg):
+    from app.pg_users import create_user
+    from app.pg_identity import login, resolve_session
+    from uuid import uuid4
+    dsn=os.environ["PG_TEST_DSN"]
+    suffix=uuid4().hex[:8]
+    admin_org=uuid4()
+    pg["db"].execute("INSERT INTO ms.organizations(id,name) VALUES(%s,%s)",(admin_org,"Provision Test "+suffix))
+    email="reviewer"+suffix+"@example.org"
+    identity=create_user(dsn,str(admin_org),email,"strong distinct password 1234","reviewer")
+    assert identity["role"]=="reviewer"
+    assert identity["org_id"]==str(admin_org)
+    token=login(dsn,email,"strong distinct password 1234",str(admin_org))
+    assert token
+    resolved=resolve_session(dsn,token)
+    assert str(resolved["role"])=="reviewer"
+    with pytest.raises(ValueError):
+        create_user(dsn,str(admin_org),email,"another password string 1234","analyst")
+    with pytest.raises(ValueError):
+        create_user(dsn,str(admin_org),"bad-email","strong password string 1234","analyst")
