@@ -47,3 +47,37 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Browser end-to-end smoke (synthetic data)
         run: python tests/browser_smoke.py
+
+  docker-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      MERCHANTSCOPE_ADMIN_TOKEN: ci-analyst-strong-secret
+      MERCHANTSCOPE_REVIEWER_TOKEN: ci-reviewer-different-secret
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - name: Build and run loopback-only pilot
+        run: docker compose up --build -d
+      - name: Check running container and public bind
+        run: |
+          for attempt in $(seq 1 40); do
+            if curl --silent --fail http://127.0.0.1:8765/api/health >/tmp/ms-health.json; then
+              break
+            fi
+            sleep 2
+          done
+          grep -q '"status":"ok"' /tmp/ms-health.json
+          curl --silent --fail -H "X-Admin-Token: $MERCHANTSCOPE_ADMIN_TOKEN" http://127.0.0.1:8765/api/merchants >/tmp/ms-merchants.json
+          python - <<'PY'
+          import json
+          assert json.load(open('/tmp/ms-merchants.json')) == []
+          print('Docker local pilot startup and authenticated read: PASS')
+          PY
+          docker compose ps
+      - name: Tear down local test
+        if: always()
+        run: docker compose down --volumes
