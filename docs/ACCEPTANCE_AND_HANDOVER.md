@@ -1,31 +1,35 @@
-# MerchantScope verified implementation and release gates
-Date: 2026-11-19. Source of truth: GitHub PR #1, branch feat/merchant-intelligence-mvp.
+# MerchantScope — Verified handover and remaining acceptance gates
+Date: 2026-11-19
 
-## Available in local pilot
-- Responsive Arabic RTL dashboard for merchants, dated evidence, cautious metrics, market sample comparisons, leads, pending recommendations and approval decisions.
-- Bounded OpenStreetMap discovery (read-only preview), manually confirmed imports, OSM URL provenance and ODbL attribution in CSV exports.
-- Optional Ollama localhost agent with five task modes (content, audience, competition, prospecting, proposal), strict existing-evidence-ID validation and pending human review; no model/API key supplied, so actual AI model inference is **not verified**.
-- Separate analyst and reviewer local secrets when MERCHANTSCOPE_REVIEWER_TOKEN is configured. Default denies remote access.
-- Evidence distinguishes observed_at from published_at; unknown publication dates never count toward posting-consistency scoring.
-- Human approval before outreach, with no autonomous messages sent.
-- Source policy docs/MARKETING_SKILLS.md and docs/OSM_DISCOVERY.md.
+## Canonical repository
+https://github.com/overurdream-collab/Merchant-scope
+Draft PR #1: https://github.com/overurdream-collab/Merchant-scope/pull/1
 
-## Verified by GitHub CI
-30 passing automated tests + Python compilation + JavaScript syntax check on commit 6d0d57c; later source attribution changes must re-run CI. Tests use synthetic data and mock the external OSM endpoint and local model.
+## Working local pilot (SQLite, loopback-only by default)
+- Arabic RTL dashboard with merchant registry, source links, timestamped evidence, documented publication dates, assessments, market comparisons, opportunities, review, audited approved proposals, CSV preview/import/export.
+- OSM Overpass public merchant discovery bounded to a selected radius/category, opt-in manual import and ODbL source attribution. Real upstream availability NOT validated by CI.
+- Optional Ollama localhost 5-mode marketing agent with evidence-ID validation and human review. No model configured/validated in CI, so do not claim model inference quality.
+- Analyst/reviewer secrets can be separated in the local pilot, but these are shared role tokens, NOT user authentication.
+- Marketing skill references pinned to boringmarketer/boring-marketing-skills commit bd5aaedab44368d76326d98d488697158b886679; they are curated task mappings, NOT external executable code.
 
-## Blockers for production acceptance
-1. PostgreSQL backend, migrations, tenant isolation, identity sessions and independent per-user reviewer authorization; existing per-role tokens are **NOT production-ready**.
-2. Confirm live Overpass reachability and terms in target deployment, avoid misuse of shared public API. Social platform collectors (Meta/TikTok/Google) need consent and approved APIs.
-3. Live Ollama model installed and evaluated with Arabic merchant evidence, false claims, prompt injection and quality benchmark; skills mappings reviewed but upstream source code not run.
-4. Deployment, secrets, backups, recovery drills, security testing, browser E2E tests, real merchant pilot and operating-cost limits.
-5. Legal review of personal data, communication permissions and OSM-derived data rights.
+## Production PostgreSQL security foundation (NOT yet wired to pilot API)
+- File: db/postgres/001_init.sql
+- Tenant RLS + membership roles; reviewer cannot edit merchant records.
+- Approval requires a source-evidence link and a different reviewer.
+- Lead outreach guarded at SQL layer; audit insert is trigger-owned.
+- Tests use a dedicated PostgreSQL 16 GitHub Actions service.
+- Verified CI: https://github.com/overurdream-collab/Merchant-scope/actions/runs/44420427187 — success.
+- Existing Python local pilot CI: https://github.com/overurdream-collab/Merchant-scope/actions/runs/44420427201 — success, 31 tests plus compilation and browser JavaScript syntax validation.
+- No migration to production PostgreSQL data service has been performed.
+
+## Open P0 gates
+1. Implement production API with authenticated individual sessions and safe transactional PostgreSQL tenant context; connect entire UI. Migrate old SQLite pilot records with rehearsal and backup/restore. Enforce role separation by user, not only shared secrets.
+2. Verify live target environment for OSM, privacy/legal requirements and permissions. Add approved source API integrations (Meta/Google/TikTok where allowed), content snapshots, scheduled ingestion and idempotent retries.
+3. Install an actual local/hosted model and evaluate Arabic content, hallucination rate, proof checking, source citation accuracy, prompt injection and costs. Read and audit skills before enabling any external workflow.
+4. Perform browser E2E tests and real merchant UAT with documented evidence, negative permissions tests, restore drill, threat model, deployment and monitoring.
+5. Do not contact businesses automatically or treat observed sample metrics as complete market statistics.
 
 ## Release decision
-Local pilot **accepted for internal testing only** if CI stays green; production release **REJECTED until all P0 gates pass**. Draft PR #1 must not merge as production-ready.
-
-## Acceptance process for next engineer
-- Read README and docs/PROVENANCE_SECURITY.md.
-- Check PR #1 and GitHub Actions, reproduce tests.
-- Work on a separate reviewable branch, add negative auth tests.
-- Use real merchant data only with documented public/authorized provenance, never fabricate.
-- Do not silently enable outbound marketing.
+**Internal local pilot: available for controlled testing.**
+**Production launch: NOT APPROVED.**
+PR #1 remains draft. No paid services provisioned. Never claim acceptance until open P0 gates pass independently.
