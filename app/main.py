@@ -215,12 +215,13 @@ def audit_log(x_admin_token:str|None=Header(None)):
 @app.get("/api/export.csv")
 def export_csv(x_admin_token:str|None=Header(None)):
     require(x_admin_token,role="viewer")
-    with conn() as c: data=rows(c,"SELECT id,name,city,category,governorate,market,website FROM merchants")
+    with conn() as c: data=rows(c,"SELECT m.id,m.name,m.city,m.category,m.governorate,m.market,m.website, (SELECT url FROM channels ch WHERE ch.merchant_id=m.id AND ch.platform='openstreetmap' LIMIT 1) AS osm_source FROM merchants m")
     output=io.StringIO()
-    fields=["id","name","city","category","governorate","market","website"]
+    fields=["id","name","city","category","governorate","market","website","osm_source","osm_attribution"]
     writer=csv.DictWriter(output,fieldnames=fields);writer.writeheader()
     for row in data:
-        writer.writerow({k: "'"+v if isinstance(v,str) and v.lstrip().startswith(("=","+","-","@")) else v for k,v in row.items()})
+        out={**row,"osm_attribution":osm.ATTRIBUTION if row.get("osm_source") else ""}
+        writer.writerow({k: "'"+v if isinstance(v,str) and v.lstrip().startswith(("=","+","-","@")) else v for k,v in out.items()})
     return StreamingResponse(iter([output.getvalue().encode("utf-8-sig")]),media_type="text/csv")
 @app.post("/api/import/preview")
 async def preview(file:UploadFile=File(...),x_admin_token:str|None=Header(None)):

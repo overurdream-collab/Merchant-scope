@@ -1,50 +1,31 @@
-# MerchantScope | Acceptance and handover report
-Date: 2026-11-19
+# MerchantScope verified implementation and release gates
+Date: 2026-11-19. Source of truth: GitHub PR #1, branch feat/merchant-intelligence-mvp.
 
-## Source of truth
-- GitHub: https://github.com/overurdream-collab/Merchant-scope
-- Branch: feat/merchant-intelligence-mvp
-- PR: https://github.com/overurdream-collab/Merchant-scope/pull/1 (draft, awaiting production readiness)
-- Lovable is NOT a runtime/build dependency.
+## Available in local pilot
+- Responsive Arabic RTL dashboard for merchants, dated evidence, cautious metrics, market sample comparisons, leads, pending recommendations and approval decisions.
+- Bounded OpenStreetMap discovery (read-only preview), manually confirmed imports, OSM URL provenance and ODbL attribution in CSV exports.
+- Optional Ollama localhost agent with five task modes (content, audience, competition, prospecting, proposal), strict existing-evidence-ID validation and pending human review; no model/API key supplied, so actual AI model inference is **not verified**.
+- Separate analyst and reviewer local secrets when MERCHANTSCOPE_REVIEWER_TOKEN is configured. Default denies remote access.
+- Evidence distinguishes observed_at from published_at; unknown publication dates never count toward posting-consistency scoring.
+- Human approval before outreach, with no autonomous messages sent.
+- Source policy docs/MARKETING_SKILLS.md and docs/OSM_DISCOVERY.md.
 
-## Implemented and testable local pilot
-1. Register merchants by name/location/activity; avoid duplicate normalized name+city.
-2. Record source URLs, dated post observations and channel links; validate URL scheme.
-3. Produce a transparent, evidence-gated marketing assessment. Missing dimension = null, not zero. No total when coverage insufficient.
-4. Produce grounded recommendations with evidence identifiers.
-5. Approve/reject/request changes with recorded review notes and audit.
-6. Require human sign-off before a lead can enter contacted/proposal/won stages. No automatic outreach.
-7. API and responsive Arabic dashboard: overview, merchant dossier, evidence intake, market sample breakdown, comparisons, opportunities, review, audit, CSV import preview/confirmation, CSV export, and print-ready report view.
-8. Build a proposal draft solely from human-approved recommendations and link source evidence.
-9. Read-only catalog of 7 reference marketing skills; no unvetted third-party skill execution.
-10. Automated API tests plus Python compilation and JavaScript syntax check via GitHub Actions.
+## Verified by GitHub CI
+30 passing automated tests + Python compilation + JavaScript syntax check on commit 6d0d57c; later source attribution changes must re-run CI. Tests use synthetic data and mock the external OSM endpoint and local model.
 
-## Safety and data accuracy
-- Market charts describe ONLY registered merchants, not the overall market.
-- No real traders or marketing results have been fabricated or preloaded.
-- Links must be user-entered and have permitted http(s) scheme. No authorization to scrape protected platform data.
-- Do not publish the local-pilot admin secret or operate the pilot over a public network.
-- Source evidence is user supplied, so source authenticity still requires review.
+## Blockers for production acceptance
+1. PostgreSQL backend, migrations, tenant isolation, identity sessions and independent per-user reviewer authorization; existing per-role tokens are **NOT production-ready**.
+2. Confirm live Overpass reachability and terms in target deployment, avoid misuse of shared public API. Social platform collectors (Meta/TikTok/Google) need consent and approved APIs.
+3. Live Ollama model installed and evaluated with Arabic merchant evidence, false claims, prompt injection and quality benchmark; skills mappings reviewed but upstream source code not run.
+4. Deployment, secrets, backups, recovery drills, security testing, browser E2E tests, real merchant pilot and operating-cost limits.
+5. Legal review of personal data, communication permissions and OSM-derived data rights.
 
-## Missing production-release gates (must NOT be marked complete)
-- PostgreSQL migrations, tenant isolation, real account authentication and independent reviewer RBAC.
-- Automated and authorized data collection using approved API credentials; batching, scheduling, retry/observability.
-- Actual AI model service, reviewed and version-pinned Boring Marketing Skills runtime, multimodal content analysis.
-- End-to-end browser tests, deployment and recovery testing, penetration tests and threat-model sign-off.
-- Real merchant pilot and human audit of recommendations, benchmark quality and relevance.
-- Final host/domain, secret management, source API permissions and billing/cost guardrails.
+## Release decision
+Local pilot **accepted for internal testing only** if CI stays green; production release **REJECTED until all P0 gates pass**. Draft PR #1 must not merge as production-ready.
 
-## Acceptance criteria for production
-- 100% of privileged API paths protected by proper identity and role, independent reviewer sign-off demonstrable.
-- Merchant duplicates prevented, import and source provenance are auditable.
-- Recommendations always linked to permitted and reviewable evidence.
-- No unapproved outbound communication; no simulated market figures presented as observed.
-- 0 failing CI checks, security review accepted, data restore verified, end-to-end UAT completed.
-
-## Verified evidence
-- CI previous commit b3adbf0: https://github.com/overurdream-collab/Merchant-scope/actions/runs/44415944278 (completed success)
-- Current commit: verify new run in GitHub Actions before accepting this handover.
-- Do not equate passing unit tests with production security or full business acceptance.
-
-## Next implementation order
-Authentication + PostgreSQL -> authorized sources and manual validation -> AI inference and vetted skills -> reviewer workflow separation -> secure deployments/monitoring -> real merchant UAT.
+## Acceptance process for next engineer
+- Read README and docs/PROVENANCE_SECURITY.md.
+- Check PR #1 and GitHub Actions, reproduce tests.
+- Work on a separate reviewable branch, add negative auth tests.
+- Use real merchant data only with documented public/authorized provenance, never fabricate.
+- Do not silently enable outbound marketing.

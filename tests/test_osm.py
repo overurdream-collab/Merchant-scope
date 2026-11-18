@@ -35,3 +35,12 @@ def test_osm_requires_auth(client):
 
 def test_osm_parameter_validation(client):
     assert client.post("/api/discovery/osm",headers=H,json={"lat":190,"lon":44}).status_code==422
+
+def test_osm_csv_export_retains_attribution(client):
+    payload={"confirm":True,"merchants":[{"name":"متجر الواحة","city":"صنعاء","source_url":"https://www.openstreetmap.org/way/1234"}]}
+    assert client.post("/api/discovery/osm/commit",headers=H,json=payload).status_code==200
+    exported=client.get("/api/export.csv",headers=H)
+    assert exported.status_code==200
+    assert "osm_source" in exported.text
+    assert "OpenStreetMap contributors" in exported.text
+    assert "https://www.openstreetmap.org/way/1234" in exported.text
