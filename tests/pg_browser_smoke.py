@@ -14,9 +14,9 @@ from urllib.request import urlopen
 from playwright.sync_api import sync_playwright, expect
 from psycopg import connect
 
-from app.pg_identity import bootstrap_admin, hash_password
-
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
+from app.pg_identity import bootstrap_admin, hash_password
 URL="http://127.0.0.1:8766"
 
 def wait_server():
