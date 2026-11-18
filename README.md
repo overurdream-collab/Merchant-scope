@@ -62,3 +62,7 @@ Open `http://127.0.0.1:8000/docs` for the API documentation. Supply the secret t
 - `POST /api/import/commit`: human-confirmed, bounded merchant bulk import (validated fields, deduplication and audit). This **does not** scrape external platforms.
 - `GET /api/merchants/{id}/proposal`: evidence-linked proposal draft **only from human-approved recommendations**. Never sends messages or makes performance promises.
 - Tests assert confirmation requirement, idempotent duplicates, unsafe-link validation and proposal prerequisites.
+
+## Optional local AI agent (Ollama)
+To run local model-assisted drafting, start Ollama on **127.0.0.1:11434**, install a model with sufficient Arabic proficiency, then set `MERCHANTSCOPE_OLLAMA_MODEL` to its exact name. API: `POST /api/merchants/{id}/agent-draft` with `{"mode":"content"|"audience"|"competition"|"prospecting"|"proposal"}`. Model must return JSON citing existing evidence IDs. Invalid or unsupported citations are rejected, and any valid drafts remain `pending_review`. **No sending, publishing, or financial effect is performed by this endpoint.**
+Upstream marketing skills are **conceptually mapped**, not blindly installed or executed. See `docs/MARKETING_SKILLS.md`.

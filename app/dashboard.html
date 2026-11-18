@@ -95,4 +95,28 @@ showMerchant=async function(id){
  });
  holder.prepend(b);
 };
+
+/* Optional local Ollama assistant: drafts are never approved automatically. */
+const previousMerchantPage = showMerchant;
+showMerchant = async function(id) {
+    await previousMerchantPage(id);
+    const controls=document.createElement("div");controls.className="flex no-print";
+    const sel=document.createElement("select");sel.id="agentMode";
+    for(const [value,label] of Object.entries({content:"تحليل المحتوى",audience:"تحليل الجمهور",competition:"تحليل المنافسة",prospecting:"فرص التسويق",proposal:"مسودة عرض"})){
+        const option=document.createElement("option");option.value=value;option.textContent=label;sel.append(option);
+    }
+    const run=document.createElement("button");run.className="secondary";run.textContent="تشغيل الوكيل المحلي (Ollama)";
+    const status=document.createElement("span");status.className="muted";status.textContent="يحتاج نموذج Ollama محلياً؛ المخرجات بانتظار مراجعة.";
+    run.onclick=()=>handle(async()=>{
+        run.disabled=true;
+        try{
+            const result=await request("/merchants/"+id+"/agent-draft","POST",{mode:sel.value});
+            notice("حُفظت "+result.recommendation_ids.length+" مسودات للمراجعة؛ لا توجد رسائل مرسلة.");
+            await reload();
+            await previousMerchantPage(id);
+        }finally{run.disabled=false}
+    });
+    controls.append(sel,run,status);
+    $("dossier").prepend(controls);
+};
 </script></body></html>

@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from .scoring import assess, recommend
+from . import agent
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get("MERCHANTSCOPE_DB", str(ROOT.parent / "merchant_scope.db")))
@@ -69,6 +70,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS recommendations(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), assessment_id INTEGER NOT NULL REFERENCES assessments(id), problem TEXT NOT NULL, action TEXT NOT NULL, rationale TEXT, priority TEXT, evidence_ids TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending_review', review_notes TEXT, reviewed_at TEXT);
         CREATE TABLE IF NOT EXISTS leads(merchant_id INTEGER PRIMARY KEY REFERENCES merchants(id), stage TEXT NOT NULL DEFAULT 'new', outreach_approved INTEGER NOT NULL DEFAULT 0, notes TEXT);
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, action TEXT NOT NULL, entity TEXT NOT NULL, entity_id INTEGER NOT NULL, details TEXT NOT NULL, at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS agent_runs(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), mode TEXT NOT NULL, summary TEXT, model TEXT, created_at TEXT NOT NULL);
         """)
         columns = {x["name"] for x in c.execute("PRAGMA table_info(evidence)")}
         if "published_at" not in columns:
@@ -382,3 +384,39 @@ def marketing_proposal(mid:int,x_admin_token:str|None=Header(None)):
                 "summary":"اقتراح خدمات تسويقية لمعالجة فجوات موثقة في العينة المرصودة",
                 "services":items,"next_step":"Review, edit, approve outreach separately. No messages are sent.",
                 "disclaimer":"Do not promise any uplift, lead count or sales figure without an independent measurement baseline."}
+
+class AgentRequest(BaseModel):
+    mode: Literal["content","audience","competition","prospecting","proposal"]
+
+@app.post("/api/merchants/{mid}/agent-draft")
+def agent_draft(mid:int, data:AgentRequest, x_admin_token:str|None=Header(None)):
+    require(x_admin_token)
+    with conn() as c:
+        m=merchant(c,mid)
+        e=rows(c,"SELECT * FROM evidence WHERE merchant_id=? ORDER BY observed_at DESC LIMIT 20",(mid,))
+        if not e:
+            raise HTTPException(422,"At least one evidence record is required")
+        output=agent.run_model(data.mode,m,e)
+        reviewed=agent.validate_draft(output,e)
+        if not reviewed["recommendations"]:
+            raise HTTPException(422,"Model produced no recommendations backed by evidence")
+        assessment=c.execute("SELECT id FROM assessments WHERE merchant_id=? ORDER BY id DESC LIMIT 1",(mid,)).fetchone()
+        assessment_id=assessment["id"] if assessment else c.execute("INSERT INTO assessments(merchant_id,result,created_at) VALUES(?,?,?)",(mid,json.dumps({"score":None,"note":"agent draft only"}),now())).lastrowid
+        run_id=c.execute("INSERT INTO agent_runs(merchant_id,mode,summary,model,created_at) VALUES(?,?,?,?,?)",
+            (mid,data.mode,reviewed["summary"],os.environ.get("MERCHANTSCOPE_OLLAMA_MODEL",""),now())).lastrowid
+        rec_ids=[]
+        for r in reviewed["recommendations"]:
+            rid=c.execute("INSERT INTO recommendations(merchant_id,assessment_id,problem,action,rationale,priority,evidence_ids) VALUES(?,?,?,?,?,?,?)",
+                (mid,assessment_id,r["problem"],r["action"],r["rationale"],r["priority"],json.dumps(r["evidence_ids"]))).lastrowid
+            rec_ids.append(rid)
+            audit(c,"agent_recommendation_pending","recommendation",rid,{"agent_run_id":run_id,"mode":data.mode})
+        audit(c,"agent_run","merchant",mid,{"agent_run_id":run_id,"mode":data.mode,"recommendations":len(rec_ids)})
+        return {"status":"pending_review","run_id":run_id,"summary":reviewed["summary"],"recommendation_ids":rec_ids,
+                "note":"This output is unverified AI-generated analysis. Review evidence and claims manually."}
+
+@app.get("/api/merchants/{mid}/agent-history")
+def agent_history(mid:int,x_admin_token:str|None=Header(None)):
+    require(x_admin_token,role="viewer")
+    with conn() as c:
+        merchant(c,mid)
+        return rows(c,"SELECT * FROM agent_runs WHERE merchant_id=? ORDER BY id DESC LIMIT 50",(mid,))
