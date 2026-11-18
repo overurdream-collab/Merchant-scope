@@ -1,6 +1,7 @@
 """Local-only AI marketing draft engine. Inputs are untrusted evidence, outputs stay pending human review."""
 import json
 import os
+import re
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 from fastapi import HTTPException
@@ -62,6 +63,21 @@ def run_model(mode, merchant, evidence):
         raise HTTPException(502,"Model returned invalid JSON") from exc
     return output
 
+PERCENT_RE=re.compile(r"[0-9٠-٩]+(?:[.,٫][0-9٠-٩]+)?\\s*[%٪]")
+GUARANTEE_RE=re.compile(r"(?i)\\b(?:guarantee|guaranteed|certainly)\\b|مضمونة|مضمون|نضمن|سيحقق|سنحقق")
+
+def requires_fact_check(text, sources):
+    """Reject quantitative and guaranteed outcomes unsupported even by supplied evidence.
+    This does not replace human validation of source authenticity and semantics.
+    """
+    if GUARANTEE_RE.search(text):
+        return True
+    available=" ".join(str(s.get("text") or "") for s in sources)
+    for percentage in PERCENT_RE.findall(text):
+        if percentage not in available:
+            return True
+    return False
+
 def validate_draft(output, evidence):
     if not isinstance(output,dict):
         raise HTTPException(502,"Invalid agent output")
@@ -80,10 +96,15 @@ def validate_draft(output, evidence):
         rationale=item.get("rationale","")
         if not all(isinstance(v,str) for v in (problem,action,rationale)):continue
         if not (5<=len(problem.strip())<=300 and 5<=len(action.strip())<=1000):continue
+        cited_sources=[entry for entry in evidence if entry["id"] in ids]
+        if requires_fact_check(" ".join((problem,action,rationale)),cited_sources):
+            continue
         priority=item.get("priority","medium")
         if priority not in ("high","medium","low"):priority="medium"
         result.append({"problem":problem.strip(),"action":action.strip(),
                        "rationale":rationale[:1000],"priority":priority,"evidence_ids":sorted(set(ids))})
     summary=output.get("summary","")
     if not isinstance(summary,str):summary=""
+    if requires_fact_check(summary,evidence):
+        summary="ملخص يحتاج تحققاً من المراجع؛ حُذفت منه ادعاءات كمية أو نتائج مضمونة غير موثقة."
     return {"summary":summary[:1500],"recommendations":result}
