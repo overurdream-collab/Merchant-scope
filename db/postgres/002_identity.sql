@@ -22,8 +22,29 @@ CREATE INDEX sessions_lookup ON ms.sessions(token_hash) WHERE revoked_at IS NULL
 CREATE INDEX sessions_expiry ON ms.sessions(expires_at);
 REVOKE ALL ON ms.user_accounts,ms.sessions FROM PUBLIC;
 GRANT USAGE ON SCHEMA ms TO merchant_auth;
-GRANT SELECT ON ms.user_accounts,ms.memberships,ms.organizations TO merchant_auth;
+-- User/account/member lookup is through narrow SECURITY DEFINER functions only.
 GRANT SELECT,INSERT,UPDATE ON ms.sessions TO merchant_auth;
 -- Runtime has no direct access to authentication secrets.
 REVOKE ALL ON ms.user_accounts,ms.sessions FROM merchant_runtime;
+
+-- Authentication-only SECURITY DEFINER lookups bypass tenant RLS after validating
+-- that the account belongs to the requested organization. Never expose these to runtime.
+CREATE FUNCTION ms.login_account(p_email text,p_org uuid)
+RETURNS TABLE(user_id uuid,password_hash text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=ms,pg_temp AS $$
+ SELECT a.id,a.password_hash FROM ms.user_accounts a
+ JOIN ms.memberships m ON m.user_id=a.id AND m.org_id=p_org
+ WHERE a.email=p_email AND a.disabled_at IS NULL
+$$;
+CREATE FUNCTION ms.lookup_session(p_digest bytea)
+RETURNS TABLE(id uuid,user_id uuid,org_id uuid,role ms.member_role)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=ms,pg_temp AS $$
+ SELECT s.id,s.user_id,s.org_id,m.role FROM ms.sessions s
+ JOIN ms.user_accounts a ON a.id=s.user_id
+ JOIN ms.memberships m ON m.user_id=s.user_id AND m.org_id=s.org_id
+ WHERE s.token_hash=p_digest AND s.revoked_at IS NULL AND s.expires_at>now()
+   AND a.disabled_at IS NULL
+$$;
+REVOKE ALL ON FUNCTION ms.login_account(text,uuid),ms.lookup_session(bytea) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ms.login_account(text,uuid),ms.lookup_session(bytea) TO merchant_auth;
 COMMIT;

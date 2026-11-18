@@ -63,9 +63,7 @@ def login(auth_dsn:str,email:str,password:str,org_id:str):
     with psycopg.connect(auth_dsn,row_factory=dict_row) as c:
         c.execute("SET LOCAL ROLE merchant_auth")
         row=c.execute("""
-          SELECT a.id,a.password_hash FROM ms.user_accounts a
-          JOIN ms.memberships m ON m.user_id=a.id
-          WHERE a.email=%s AND a.disabled_at IS NULL AND m.org_id=%s
+          SELECT user_id AS id,password_hash FROM ms.login_account(%s,%s)
         """,(email,org_id)).fetchone()
         # Avoid a distinct fast path for nonexistent accounts.
         if row is None:
@@ -86,11 +84,7 @@ def resolve_session(auth_dsn:str,token:str):
     with psycopg.connect(auth_dsn,row_factory=dict_row) as c:
         c.execute("SET LOCAL ROLE merchant_auth")
         row=c.execute("""
-          SELECT s.id,s.user_id,s.org_id,m.role FROM ms.sessions s
-          JOIN ms.user_accounts a ON a.id=s.user_id
-          JOIN ms.memberships m ON m.user_id=s.user_id AND m.org_id=s.org_id
-          WHERE s.token_hash=%s AND s.revoked_at IS NULL AND s.expires_at>now()
-            AND a.disabled_at IS NULL
+          SELECT * FROM ms.lookup_session(%s)
         """,(digest,)).fetchone()
         return dict(row) if row else None
 
