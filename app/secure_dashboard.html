@@ -169,8 +169,13 @@ async function loadMerchant(id){await handle(async()=>{
         paragraph(div,'span',rec.status,'tag');detail.append(div);
     }
 })}
-async function loadReviews(){await handle(async()=>{
-    const data=await api('/reviews');pending=data.pending;
+let reviewLoadSequence=0;
+async function loadReviews(){
+    const sequence=++reviewLoadSequence;
+    await handle(async()=>{
+    const data=await api('/reviews');
+    if(sequence!==reviewLoadSequence)return;
+    pending=data.pending;
     const root=$('reviews');root.replaceChildren();
     if(!pending.length){paragraph(root,'p','لا توجد توصيات بانتظار المراجعة.','muted');return}
     for(const item of pending){
