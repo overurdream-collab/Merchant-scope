@@ -29,3 +29,6 @@ jobs:
           Path("/tmp/merchantscope-dashboard.js").write_text(match.group(1),encoding="utf-8")
           PY
           node --check /tmp/merchantscope-dashboard.js
+
+      - name: Validate secure dashboard JavaScript
+        run: node --check app/secure.js

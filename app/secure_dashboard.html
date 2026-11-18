@@ -1,0 +1,30 @@
+<!doctype html><html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مرصد التجار | بوابة الفريق الآمنة</title>
+<style>
+:root{font-family:system-ui,"Cairo",Tahoma,Arial,sans-serif;color:#182e41;background:#f4f8fa}
+*{box-sizing:border-box}body{margin:0}header{background:#12344d;color:#fff;padding:20px 4%;display:flex;gap:15px;justify-content:space-between;align-items:center}h1{font-size:24px;margin:0}h2{font-size:19px;margin-top:0}h3{font-size:16px}small,.muted{color:#607d91}main{max-width:1280px;margin:auto;padding:20px}section{padding:20px;border:1px solid #dae5eb;background:#fff;border-radius:13px;margin-bottom:16px;box-shadow:0 3px 18px #16354d0b}label{display:block;font-size:13px;margin:8px 0 3px;color:#476172}input,textarea,select{padding:11px;width:100%;border:1px solid #ccdbe4;border-radius:8px;font:inherit;color:#203e50;background:white}button{font:inherit;background:#087c81;color:#fff;padding:10px 16px;border:0;border-radius:8px;cursor:pointer}button:disabled{opacity:.5}button.secondary{background:#e6f0f4;color:#164558}button.danger{background:#ac4b4b}.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.hidden{display:none!important}.item{border:1px solid #e1e8ed;border-radius:10px;padding:14px;margin:9px 0;overflow-wrap:anywhere}.tag{font-size:12px;color:#087c81;background:#e9f6f4;border-radius:15px;padding:3px 9px}.button-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.list-button{display:block;width:100%;text-align:right;background:#f0f6f7;color:#244356;border:1px solid #dae5eb;margin-top:6px}a{color:#007d84}.notice{padding:12px;color:#496579}.role{color:#d8eded;font-size:13px}@media(max-width:700px){.grid{grid-template-columns:1fr}header{display:block}}@media print{#auth,#nav,button,.no-print,header{display:none!important}section{box-shadow:none;break-inside:avoid}}
+</style></head>
+<body><header><div><h1>◈ مرصد التجار</h1><small style="color:#bdd4de">التحليل والتوصيات المعتمدة بالأدلة — بوابة PostgreSQL التجريبية</small></div><div id="identity" class="role"></div></header>
+<main><div id="notice" class="notice" role="status">استخدم بيانات حساب الفريق لتسجيل الدخول.</div>
+<section id="auth"><h2>الدخول الآمن</h2><form id="loginForm" class="grid">
+<div><label>البريد الإلكتروني</label><input name="email" type="email" required autocomplete="username"></div>
+<div><label>معرّف المؤسسة (UUID)</label><input name="org_id" required pattern="[0-9a-fA-F-]{36}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+<div><label>كلمة المرور</label><input name="password" type="password" required autocomplete="current-password"></div>
+<div style="align-self:end"><button>دخول</button></div></form>
+<p class="muted">لا يتم حفظ رمز الجلسة في التخزين المحلي للمتصفح؛ إعادة التحميل تتطلب تسجيل الدخول من جديد.</p></section>
+<div id="workspace" class="hidden">
+<nav id="nav" class="flex no-print" style="margin-bottom:16px"><button id="navMerchants">التجار</button><button id="navReviews" class="secondary">المراجعة والاعتماد</button><button id="logout" class="danger">خروج</button></nav>
+<div id="merchantsPanel">
+<div class="grid">
+<section><h2>إضافة تاجر</h2><form id="merchantForm">
+<label>اسم التاجر</label><input name="name" required minlength="2">
+<label>المدينة</label><input name="city" required>
+<label>القطاع</label><input name="category">
+<label>الموقع الإلكتروني</label><input name="website" type="url" placeholder="https://">
+<div class="button-row"><button>حفظ التاجر</button></div></form></section>
+<section><h2>سجل التجار</h2><div id="merchantList"></div></section>
+</div>
+<section id="dossier"><p class="muted">اختر تاجراً لعرض ملفه.</p></section></div>
+<section id="reviewsPanel" class="hidden"><h2>طابور التوصيات</h2><p class="muted">كل قرار يتطلب مراجعة الرابط الأصلي. يمنع PostgreSQL اعتماد منشئ التوصية لنفسه.</p><div id="reviewList"></div></section>
+</div></main><script src="/assets/secure.js" defer></script></body></html>

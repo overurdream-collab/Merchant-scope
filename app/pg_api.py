@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import FileResponse
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Literal
 from psycopg.rows import dict_row
@@ -14,6 +16,13 @@ from .pg_identity import login, resolve_session, revoke_session, tenant_transact
 from .scoring import assess, recommend
 
 app=FastAPI(title="MerchantScope Secure API v2",version="0.2.0")
+APP_DIR=Path(__file__).resolve().parent
+@app.get("/",include_in_schema=False)
+def secure_dashboard():
+    return FileResponse(APP_DIR/"secure_dashboard.html",media_type="text/html")
+@app.get("/assets/secure.js",include_in_schema=False)
+def secure_script():
+    return FileResponse(APP_DIR/"secure.js",media_type="application/javascript")
 def auth_dsn():return os.environ.get("MERCHANTSCOPE_AUTH_DSN","")
 def data_dsn():return os.environ.get("MERCHANTSCOPE_DATA_DSN","")
 def ensure_db():
@@ -51,6 +60,7 @@ async def headers(req:Request,call_next):
     response.headers["X-Content-Type-Options"]="nosniff"
     response.headers["X-Frame-Options"]="DENY"
     response.headers["Referrer-Policy"]="no-referrer"
+    response.headers["Content-Security-Policy"]="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
     return response
 class LoginBody(BaseModel):
     email:str=Field(min_length=3,max_length=254)
@@ -165,7 +175,13 @@ def analyze(mid:uuid.UUID,authorization:str|None=Header(None)):
 def pending(authorization:str|None=Header(None)):
     ident=current(authorization)
     with tenant_transaction(data_dsn(),ident) as c:
-        return {"pending":as_dict(c,"SELECT * FROM ms.recommendations WHERE status='pending_review' ORDER BY created_at DESC")}
+        return {"pending":as_dict(c,"""SELECT r.*,COALESCE(
+            (SELECT json_agg(json_build_object('url',e.source_url,'observed_at',e.observed_at))
+             FROM ms.recommendation_evidence re JOIN ms.evidence e
+             ON e.id=re.evidence_id AND e.org_id=re.org_id
+             WHERE re.recommendation_id=r.id AND re.org_id=r.org_id
+            ),'[]'::json) AS sources
+            FROM ms.recommendations r WHERE r.status='pending_review' ORDER BY r.created_at DESC""")}
 @app.post("/api/v2/recommendations/{rid}/review")
 def review(rid:uuid.UUID,body:ReviewIn,authorization:str|None=Header(None)):
     ident=current(authorization)

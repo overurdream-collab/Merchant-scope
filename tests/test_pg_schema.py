@@ -131,6 +131,10 @@ def test_secure_api_full_merchant_review_cycle(pg,monkeypatch):
     pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
          (details["org_id"],reviewer))
     with TestClient(app) as c:
+        root=c.get("/")
+        assert root.status_code==200 and "مرصد التجار" in root.text
+        assert "default-src" in root.headers["Content-Security-Policy"]
+        assert c.get("/assets/secure.js").status_code==200
         res=c.post("/api/v2/login",json={"email":email,"password":"complex password string 123456","org_id":details["org_id"]})
         assert res.status_code==200,res.text
         token=res.json()["access_token"]
@@ -151,6 +155,8 @@ def test_secure_api_full_merchant_review_cycle(pg,monkeypatch):
         reviewer_token=c.post("/api/v2/login",json={"email":"reviewer"+suffix+"@example.org","password":"reviewer secret password 123456","org_id":details["org_id"]}).json()["access_token"]
         R={"Authorization":"Bearer "+reviewer_token}
         assert c.get("/api/v2/merchants",headers=R).status_code==200
+        previews=c.get("/api/v2/reviews",headers=R).json()["pending"]
+        assert previews and previews[0]["sources"]
         assert c.post("/api/v2/merchants",headers=R,json={"name":"غير مسموح","city":"صنعاء"}).status_code==403
         reviewed=c.post(f"/api/v2/recommendations/{rid}/review",headers=R,json={"decision":"approved","notes":"فحص الأدلة"})
         assert reviewed.status_code==200,reviewed.text
