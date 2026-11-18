@@ -1,0 +1,69 @@
+# Secure PostgreSQL local acceptance stack. NEVER expose it to the public Internet.
+# Run: docker compose --env-file .env.secure -f compose.secure.yml up --build -d
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: merchantscope
+      POSTGRES_PASSWORD: ${MS_POSTGRES_SUPERUSER_PASSWORD:?Set a strong local database superuser password}
+      MS_AUTH_PASSWORD: ${MS_AUTH_PASSWORD:?Set a separate restricted auth password}
+      MS_DATA_PASSWORD: ${MS_DATA_PASSWORD:?Set a separate restricted business-data password}
+    volumes:
+      - merchant_pg_data:/var/lib/postgresql/data
+      - ./db/postgres/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./db/postgres/002_identity.sql:/docker-entrypoint-initdb.d/002_identity.sql:ro
+      - ./db/postgres/003_roles.sh:/docker-entrypoint-initdb.d/003_roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d merchantscope"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.secure
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8788:8000"
+    environment:
+      MERCHANTSCOPE_AUTH_DSN: postgresql://ms_auth_api:${MS_AUTH_PASSWORD:?}@db:5432/merchantscope
+      MERCHANTSCOPE_DATA_DSN: postgresql://ms_data_api:${MS_DATA_PASSWORD:?}@db:5432/merchantscope
+      MERCHANTSCOPE_LOCAL_CONTAINER_MODE: "1"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/',timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+  bootstrap:
+    profiles: ["setup"]
+    build:
+      context: .
+      dockerfile: Dockerfile.secure
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MERCHANTSCOPE_ADMIN_DSN: postgresql://postgres:${MS_POSTGRES_SUPERUSER_PASSWORD:?}@db:5432/merchantscope
+    command: ["python","-m","scripts.bootstrap_pg"]
+    stdin_open: true
+    tty: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  merchant_pg_data:

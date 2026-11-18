@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /srv/app
+COPY requirements.txt /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt "psycopg[binary]>=3.2,<4" \
+ && groupadd --system --gid 10001 appgroup \
+ && useradd --system --uid 10001 --gid appgroup --home-dir /nonexistent appuser
+COPY --chown=appuser:appgroup app /srv/app/app
+COPY --chown=appuser:appgroup scripts /srv/app/scripts
+USER appuser
+EXPOSE 8000
+CMD ["uvicorn","app.pg_api:app","--host","0.0.0.0","--port","8000","--no-access-log"]

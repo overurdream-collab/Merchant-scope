@@ -45,7 +45,7 @@ def must_merchant(conn,id:str):
     return record
 @app.middleware("http")
 async def headers(req:Request,call_next):
-    if req.url.scheme != "https" and (req.client is not None and req.client.host not in ("127.0.0.1","::1","localhost","testclient")):
+    if req.url.scheme != "https" and os.environ.get("MERCHANTSCOPE_LOCAL_CONTAINER_MODE") != "1" and (req.client is not None and req.client.host not in ("127.0.0.1","::1","localhost","testclient")):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error":"HTTPS required"},status_code=400)
     response=await call_next(req)

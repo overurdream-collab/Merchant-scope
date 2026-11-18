@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 *.db
 *.sqlite*
+
+# Secure local Compose credentials — never commit
+.env.secure
+.env.secure.local

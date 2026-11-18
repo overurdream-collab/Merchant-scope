@@ -1,0 +1,74 @@
+name: MerchantScope Secure Compose Acceptance
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  local-postgres-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create throwaway synthetic secrets (never committed)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from secrets import token_urlsafe
+          keys = ('MS_POSTGRES_SUPERUSER_PASSWORD','MS_AUTH_PASSWORD','MS_DATA_PASSWORD')
+          Path('.env.secure').write_text(''.join(k+'='+token_urlsafe(36)+'\n' for k in keys))
+          PY
+      - name: Validate compose and start localhost stack
+        run: |
+          docker compose --env-file .env.secure -f compose.secure.yml config --quiet
+          docker compose --env-file .env.secure -f compose.secure.yml up --build -d --wait --wait-timeout 180
+      - name: Verify DB migration and least-privileged API container
+        run: |
+          docker compose --env-file .env.secure -f compose.secure.yml exec -T db psql -U postgres -d merchantscope -Atc "SELECT to_regclass('ms.sessions') IS NOT NULL AND to_regclass('ms.audit_events') IS NOT NULL" | grep '^t$'
+          docker compose --env-file .env.secure -f compose.secure.yml exec -T db psql -U postgres -d merchantscope -Atc "SELECT rolcanlogin FROM pg_roles WHERE rolname = 'ms_data_api'" | grep '^t$'
+      - name: Create synthetic admin offline and test login/data flow
+        run: |
+          docker compose --env-file .env.secure -f compose.secure.yml --profile setup run --rm -T bootstrap python -c "from app.pg_identity import bootstrap_admin; bootstrap_admin(__import__('os').environ['MERCHANTSCOPE_ADMIN_DSN'],'CI Org','ci-operator@example.org','ci dedicated password 1234567')"
+          docker compose --env-file .env.secure -f compose.secure.yml exec -T db psql -U postgres -d merchantscope -Atc "SELECT id FROM ms.organizations WHERE name = 'CI Org' LIMIT 1" > /tmp/merchant-org-id
+          python - <<'PY'
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          from pathlib import Path
+          import json
+          base='http://127.0.0.1:8788'
+          def send(path, body=None, token=None):
+              headers={'Content-Type':'application/json'}
+              if token:headers['Authorization']='Bearer '+token
+              payload=json.dumps(body,ensure_ascii=False).encode() if body is not None else None
+              request=Request(base+path,data=payload,headers=headers,method='POST' if body is not None else 'GET')
+              with urlopen(request,timeout=10) as response:
+                  return response.status,json.load(response) if path.startswith('/api/') else response.read().decode()
+          with urlopen(base+'/',timeout=10) as response:
+              body=response.read().decode()
+              assert response.status==200 and 'مرصد التجار' in body
+          try:
+              send('/api/v2/me')
+              raise AssertionError('Unauthenticated API accepted')
+          except HTTPError as exc:
+              assert exc.code==401
+          org=Path('/tmp/merchant-org-id').read_text().strip()
+          status,login=send('/api/v2/login',{'email':'ci-operator@example.org','password':'ci dedicated password 1234567','org_id':org})
+          assert status==200 and login['access_token']
+          token=login['access_token']
+          status,me=send('/api/v2/me',token=token)
+          assert status==200 and me['org_id']==org
+          status,m=send('/api/v2/merchants',{'name':'اختبار تجريبي','city':'صنعاء'},token=token)
+          assert status==201 and m['id']
+          status,items=send('/api/v2/merchants',token=token)
+          assert len(items['merchants'])==1
+          print('Secure localhost Postgres startup, login and merchant lifecycle: PASS')
+          PY
+      - name: Tear down disposable stack and data
+        if: always()
+        run: |
+          docker compose --env-file .env.secure -f compose.secure.yml logs --no-color web | tail -60 || true
+          docker compose --env-file .env.secure -f compose.secure.yml down -v --remove-orphans || true
+          rm -f .env.secure
