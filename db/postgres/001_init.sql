@@ -217,7 +217,7 @@ BEGIN
 END $$;
 -- Audit must be written by a trusted SECURITY DEFINER trigger, not client-supplied.
 CREATE FUNCTION ms.audit_change() RETURNS trigger
- LANGUAGE plpgsql SECURITY DEFINER SET search_path=ms,pg_temp AS $
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=ms,pg_temp AS $$
 DECLARE record_data jsonb; tenant uuid; ref uuid;
 BEGIN
  record_data:=CASE WHEN TG_OP='DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(NEW) END;
@@ -227,13 +227,13 @@ BEGIN
  VALUES(tenant,ms.actor_id(),lower(TG_OP),TG_TABLE_NAME,ref,
         jsonb_build_object('at',now(),'table',TG_TABLE_NAME));
  RETURN COALESCE(NEW,OLD);
-END $;
-DO $ DECLARE t text; BEGIN
+END $$;
+DO $$ DECLARE t text; BEGIN
  FOREACH t IN ARRAY ARRAY['merchants','channels','evidence','assessments','recommendations',
  'recommendation_evidence','leads'] LOOP
   EXECUTE format('CREATE TRIGGER %I AFTER INSERT OR UPDATE OR DELETE ON ms.%I FOR EACH ROW EXECUTE FUNCTION ms.audit_change()', 'audit_'||t, t);
  END LOOP;
-END $;
+END $$;
 GRANT USAGE ON SCHEMA ms TO merchant_runtime;
 GRANT SELECT, INSERT, UPDATE ON ms.merchants,ms.channels,ms.evidence,ms.assessments,ms.recommendations,ms.recommendation_evidence,ms.leads TO merchant_runtime;
 GRANT SELECT,INSERT,UPDATE ON ms.memberships TO merchant_runtime;
