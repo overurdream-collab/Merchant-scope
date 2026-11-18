@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from .scoring import assess, recommend
-from . import agent
+from . import agent, osm
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get("MERCHANTSCOPE_DB", str(ROOT.parent / "merchant_scope.db")))
@@ -420,3 +420,46 @@ def agent_history(mid:int,x_admin_token:str|None=Header(None)):
     with conn() as c:
         merchant(c,mid)
         return rows(c,"SELECT * FROM agent_runs WHERE merchant_id=? ORDER BY id DESC LIMIT 50",(mid,))
+
+class OSMSearch(BaseModel):
+    lat: float = Field(ge=-90,le=90)
+    lon: float = Field(ge=-180,le=180)
+    radius_m: int = Field(default=1200,ge=100,le=3000)
+    category: Literal["shop","restaurant","cafe","pharmacy"]="shop"
+
+class OSMChoice(BaseModel):
+    name: str = Field(min_length=2,max_length=200)
+    city: str = Field(min_length=1,max_length=100)
+    category: str|None = None
+    source_url: str
+
+class OSMConfirmation(BaseModel):
+    confirm: bool=False
+    merchants: list[OSMChoice] = Field(min_length=1,max_length=50)
+
+@app.post("/api/discovery/osm")
+def osm_discovery(data:OSMSearch,x_admin_token:str|None=Header(None)):
+    require(x_admin_token)
+    return osm.discover(data.lat,data.lon,data.radius_m,data.category)
+
+@app.post("/api/discovery/osm/commit")
+def osm_confirm(data:OSMConfirmation,x_admin_token:str|None=Header(None)):
+    require(x_admin_token)
+    if not data.confirm: raise HTTPException(422,"Human import confirmation required")
+    imported=[];skipped=[]
+    with conn() as c:
+        for entry in data.merchants:
+            if not re.fullmatch(r"https://www\.openstreetmap\.org/(node|way|relation)/[1-9][0-9]*",entry.source_url):
+                raise HTTPException(422,"Invalid OSM source URL")
+            seen=c.execute("SELECT id FROM merchants WHERE normalized=? AND city=?",(normalized(entry.name),entry.city)).fetchone()
+            same_url=c.execute("SELECT merchant_id FROM channels WHERE url=?",(entry.source_url,)).fetchone()
+            if seen or same_url:
+                skipped.append({"name":entry.name,"reason":"Existing merchant name or OSM identifier"})
+                continue
+            mid=c.execute("INSERT INTO merchants(name,normalized,city,category,created_at) VALUES(?,?,?,?,?)",
+                (entry.name,normalized(entry.name),entry.city,entry.category,now())).lastrowid
+            c.execute("INSERT INTO channels(merchant_id,platform,url) VALUES(?,?,?)",(mid,"openstreetmap",entry.source_url))
+            audit(c,"osm_import","merchant",mid,{"source_url":entry.source_url,"attribution":osm.ATTRIBUTION})
+            imported.append(mid)
+    return {"imported":len(imported),"ids":imported,"skipped":skipped,"attribution":osm.ATTRIBUTION,
+            "caveat":"Source URL supplied by reviewer; verify its correspondence with the OSM record."}

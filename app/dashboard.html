@@ -18,7 +18,18 @@
 <div id="market" class="panel hidden"><section><h2>تحليل السوق والعينة</h2><div class="flex"><input id="marketCity" placeholder="مدينة (اختياري)"><input id="marketCategory" placeholder="نشاط (اختياري)"><button id="marketRun">تحليل العينة</button></div><p class="muted">النتائج تصف التجار المسجلين في النظام فقط، وليست تقديراً لحصة السوق.</p><div id="marketResult"></div></section><section><h2>مقارنة التجار</h2><div class="flex"><input id="compareIds" placeholder="أرقام التجار، مثال: 1,2" style="min-width:240px"><button id="compareRun">مقارنة</button></div><div id="comparison"></div></section></div>
 <div id="opportunities" class="panel hidden"><section><h2>ترتيب الفرص البيعية</h2><p class="muted">درجة داخلية للتوجيه فقط؛ ليست احتمال نجاح البيع أو توقع الإيراد.</p><div id="opportunityList"></div></section></div>
 <div id="review" class="panel hidden"><section><h2>التوصيات التي تنتظر الموافقة</h2><p class="muted">راجع المصدر بنفسك واكتب سبب القرار. لا يمكن اعتماد التوصية مرتين.</p><div id="reviewList"></div></section></div>
-<div id="sources" class="panel hidden"><div class="grid"><section><h2>استيراد CSV (فحص التكرار)</h2><p class="muted">معاينة فقط، لا تُدخل سجلات تلقائياً قبل التحقق البشري.</p><form id="csvForm" class="stack"><input type="file" name="file" accept=".csv,text/csv" required><button>فحص الملف</button></form><pre id="csvOut"></pre></section><section><h2>المهارات التسويقية</h2><p class="muted">فهرس مهارات مرجعي. لم يتم تنزيل أو تنفيذ كود خارجي تلقائياً.</p><div id="skills"></div></section></div><section><h2>سجل التدقيق</h2><button id="auditRun">تحميل العمليات</button><pre id="auditOut"></pre></section></div>
+<div id="sources" class="panel hidden"><div class="grid"><section><h2>استيراد CSV (فحص التكرار)</h2><p class="muted">معاينة فقط، لا تُدخل سجلات تلقائياً قبل التحقق البشري.</p><form id="csvForm" class="stack"><input type="file" name="file" accept=".csv,text/csv" required><button>فحص الملف</button></form><pre id="csvOut"></pre></section><section><h2>المهارات التسويقية</h2><p class="muted">فهرس مهارات مرجعي. لم يتم تنزيل أو تنفيذ كود خارجي تلقائياً.</p><div id="skills"></div></section></div><section><h2>اكتشاف التجار عبر OpenStreetMap</h2><p class="muted">بحث محدود ضمن نطاق جغرافي. نتائج المصدر قد تكون قديمة أو ناقصة؛ لا يجري إدخالها إلا بعد المعاينة والاعتماد.</p>
+<form id="osmForm" class="controls no-print">
+<label>خط العرض<input name="lat" type="number" step="any" min="-90" max="90" required placeholder="15.369"></label>
+<label>خط الطول<input name="lon" type="number" step="any" min="-180" max="180" required placeholder="44.191"></label>
+<label>المدينة<input name="city" required placeholder="صنعاء"></label>
+<label>نصف القطر بالمتر<input name="radius_m" type="number" min="100" max="3000" value="1200" required></label>
+<label>الفئة<select name="category"><option value="shop">محلات تجارية</option><option value="restaurant">مطاعم</option><option value="cafe">مقاهٍ</option><option value="pharmacy">صيدليات</option></select></label>
+<button>بحث في البيانات المفتوحة</button>
+</form>
+<div id="osmResults"></div>
+<p class="muted"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors — ODbL</a>. لا تتوفر دقة أو تغطية مضمونة. الاستخدام الكثيف يحتاج خدمة بيانات مخصصة.</p></section>
+<section><h2>سجل التدقيق</h2><button id="auditRun">تحميل العمليات</button><pre id="auditOut"></pre></section></div>
 </main><script>
 'use strict';
 const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -119,4 +130,35 @@ showMerchant = async function(id) {
     controls.append(sel,run,status);
     $("dossier").prepend(controls);
 };
+
+let osmCandidates=[];
+$('osmForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
+ const raw=Object.fromEntries(new FormData(e.target));const city=raw.city;
+ const body={lat:Number(raw.lat),lon:Number(raw.lon),radius_m:Number(raw.radius_m),category:raw.category};
+ notice("جاري الاستعلام من OpenStreetMap ...");
+ const result=await request('/discovery/osm','POST',body);
+ osmCandidates=result.results.map(x=>({...x,city}));
+ const area=$('osmResults');area.replaceChildren();
+ const summary=document.createElement('p');summary.textContent='نتائج البحث: '+osmCandidates.length+' — اختر التجار المراد إدخالهم بعد التحقق من المصدر.';area.append(summary);
+ osmCandidates.forEach((item,i)=>{
+  const div=document.createElement('div');div.className='item';
+  const label=document.createElement('label');
+  const chk=document.createElement('input');chk.type='checkbox';chk.value=i;chk.className='osm-choice';
+  label.append(chk,document.createTextNode(' '+item.name+' — '+item.category+' '));
+  const a=document.createElement('a');a.href=item.source_url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='رابط المصدر';
+  div.append(label,a);area.append(div);
+ });
+ if(osmCandidates.length){
+  const btn=document.createElement('button');btn.textContent='تأكيد إدخال التجار المحددين';btn.className='secondary';
+  btn.onclick=()=>handle(async()=>{
+   const choices=[...document.querySelectorAll('.osm-choice:checked')].map(x=>osmCandidates[Number(x.value)]);
+   if(!choices.length){notice('حدد تاجراً واحداً على الأقل',true);return}
+   if(!confirm('تأكيد إدخال '+choices.length+' تجار مع توثيق رابط OpenStreetMap؟'))return;
+   const rows=choices.map(x=>({name:x.name,city:x.city,category:x.category,source_url:x.source_url}));
+   const saved=await request('/discovery/osm/commit','POST',{confirm:true,merchants:rows});
+   notice('تم إدخال '+saved.imported+' من '+choices.length+' تاجر. تكرارات: '+saved.skipped.length);
+   area.replaceChildren();await reload();
+  });area.append(btn);
+ }
+})};
 </script></body></html>
