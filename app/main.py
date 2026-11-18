@@ -20,8 +20,10 @@ def normalized(s): return " ".join(s.lower().replace("أ","ا").replace("إ","ا
 def require(token, role="analyst"):
     reviewer = os.environ.get("MERCHANTSCOPE_REVIEWER_TOKEN", "")
     if not TOKEN: raise HTTPException(503, "Set MERCHANTSCOPE_ADMIN_TOKEN to enable local pilot")
-    expected = reviewer if role == "reviewer" and reviewer else TOKEN
-    if not token or not secrets.compare_digest(token, expected):
+    if reviewer and secrets.compare_digest(reviewer, TOKEN):
+        raise HTTPException(503, "Reviewer and analyst keys must be different")
+    allowed = (TOKEN, reviewer) if role == "viewer" else ((reviewer,) if role == "reviewer" and reviewer else (TOKEN,))
+    if not token or not any(s and secrets.compare_digest(token, s) for s in allowed):
         raise HTTPException(403 if role == "reviewer" and reviewer else 401, "Access denied")
 
 @app.middleware("http")
@@ -109,7 +111,7 @@ class Outreach(BaseModel):
 def health(): return {"status":"ok","mode":"local_pilot","configured":bool(TOKEN)}
 @app.get("/api/merchants")
 def list_merchants(q:str="",x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c: return rows(c,"SELECT * FROM merchants WHERE name LIKE ? ORDER BY id DESC", (f"%{q}%",))
 @app.post("/api/merchants",status_code=201)
 def add_merchant(data: Merchant,x_admin_token:str|None=Header(None)):
@@ -124,7 +126,7 @@ def add_merchant(data: Merchant,x_admin_token:str|None=Header(None)):
         return {"id":r.lastrowid}
 @app.get("/api/merchants/{mid}")
 def details(mid:int,x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c:
         item=merchant(c,mid)
         for table in ("channels","evidence","assessments","recommendations"):
@@ -173,7 +175,7 @@ def analyze(mid:int,x_admin_token:str|None=Header(None)):
         return {"assessment":result,"recommendations_created":len(recs)}
 @app.get("/api/reviews")
 def pending_reviews(x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c: return rows(c,"SELECT * FROM recommendations WHERE status='pending_review' ORDER BY id DESC")
 @app.post("/api/recommendations/{rid}/review")
 def review(rid:int,data:Review,x_admin_token:str|None=Header(None)):
@@ -206,11 +208,11 @@ def update_lead(mid:int,data:Lead,x_admin_token:str|None=Header(None)):
         return {"stage":data.stage}
 @app.get("/api/audit")
 def audit_log(x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c: return rows(c,"SELECT * FROM audit ORDER BY id DESC LIMIT 200")
 @app.get("/api/export.csv")
 def export_csv(x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c: data=rows(c,"SELECT id,name,city,category,governorate,market,website FROM merchants")
     output=io.StringIO()
     fields=["id","name","city","category","governorate","market","website"]
@@ -244,7 +246,7 @@ class MarketFilter(BaseModel):
 
 @app.get("/api/overview")
 def overview(x_admin_token: str | None = Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c:
         def count(table, where="1=1"):
             return c.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}").fetchone()[0]
@@ -257,7 +259,7 @@ def overview(x_admin_token: str | None = Header(None)):
 @app.get("/api/market")
 def market_overview(city: str | None = None, category: str | None = None,
                     x_admin_token: str | None = Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c:
         query="SELECT m.*, (SELECT COUNT(*) FROM evidence e WHERE e.merchant_id=m.id) evidence_count, (SELECT COUNT(*) FROM channels ch WHERE ch.merchant_id=m.id) channel_count FROM merchants m WHERE 1=1"
         args=[]
@@ -274,7 +276,7 @@ def market_overview(city: str | None = None, category: str | None = None,
 
 @app.get("/api/compare")
 def compare(merchant_ids: str, x_admin_token: str | None = Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     try: ids=list(dict.fromkeys(int(x) for x in merchant_ids.split(",")))
     except ValueError: raise HTTPException(422,"Comma-separated integer merchant IDs required")
     if not 2 <= len(ids) <= 10: raise HTTPException(422,"Select between 2 and 10 merchants")
@@ -291,7 +293,7 @@ def compare(merchant_ids: str, x_admin_token: str | None = Header(None)):
 
 @app.get("/api/opportunities")
 def opportunities(x_admin_token: str | None = Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c:
         merchants=rows(c,"SELECT * FROM merchants ORDER BY id DESC")
         out=[]
@@ -316,7 +318,7 @@ def opportunities(x_admin_token: str | None = Header(None)):
 
 @app.get("/api/skills")
 def skill_catalog(x_admin_token: str | None = Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     return {"status":"reference_only_not_executable",
             "source":"https://github.com/boringmarketer/boring-marketing-skills",
             "skills":[{"name":name,"purpose":purpose,"installed":False} for name,purpose in [
@@ -360,7 +362,7 @@ def import_merchants(data: ImportConfirmation, x_admin_token: str | None = Heade
 
 @app.get("/api/merchants/{mid}/proposal")
 def marketing_proposal(mid:int,x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="viewer")
     with conn() as c:
         m=merchant(c,mid)
         approved=rows(c,"SELECT * FROM recommendations WHERE merchant_id=? AND status='approved' ORDER BY id",(mid,))

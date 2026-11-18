@@ -50,3 +50,14 @@ def test_future_publication_is_rejected(client):
     after=datetime.now(timezone.utc)-timedelta(days=1)
     r=client.post(f"/api/merchants/{mid}/evidence",headers=H,json={"platform":"web","source_url":"https://example.com/p","observed_at":before.isoformat(),"published_at":after.isoformat()})
     assert r.status_code==422
+
+def test_reviewer_can_read_but_not_write(client):
+    mid=create(client,"شركة الأمل")
+    assert client.get("/api/merchants",headers=R).status_code==200
+    assert client.get(f"/api/merchants/{mid}",headers=R).status_code==200
+    assert client.get("/api/reviews",headers=R).status_code==200
+    assert client.post("/api/merchants",headers=R,json={"name":"مؤسسة","city":"صنعاء"}).status_code==401
+
+def test_equal_analyst_reviewer_secrets_refused(client,monkeypatch):
+    monkeypatch.setenv("MERCHANTSCOPE_REVIEWER_TOKEN","test-secret")
+    assert client.get("/api/merchants",headers=H).status_code==503
