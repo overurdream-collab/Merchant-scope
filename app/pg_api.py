@@ -223,3 +223,84 @@ def secure_portfolio(city:str|None=None,category:str|None=None,authorization:str
                 "average_observed_score":round(sum(assessed)/len(assessed),1) if assessed else None,
                 "recommendations":totals,"merchants":entries,
                 "caveat":"Registered merchants only. Missing analytics are unavailable and should not be treated as zero."}
+
+
+class LeadStageUpdate(BaseModel):
+    stage:Literal["new","qualified","contacted","proposal","won","lost"]
+
+class OutreachDecision(BaseModel):
+    approved:bool
+
+@app.get("/api/v2/opportunities")
+def secure_opportunities(authorization:str|None=Header(None)):
+    ident=current(authorization)
+    with tenant_transaction(data_dsn(),ident) as c:
+        merchants=as_dict(c,"SELECT id,name,city,category FROM ms.merchants ORDER BY name")
+        result=[]
+        for m in merchants:
+            latest=one(c,"SELECT result FROM ms.assessments WHERE merchant_id=%s ORDER BY created_at DESC LIMIT 1",(m["id"],))
+            approved=one(c,"SELECT count(*) AS n FROM ms.recommendations WHERE merchant_id=%s AND status='approved'",(m["id"],))["n"]
+            lead=one(c,"SELECT stage::text AS stage,outreach_approved FROM ms.leads WHERE merchant_id=%s",(m["id"],))
+            assessment=latest["result"] if latest else None
+            score=assessment.get("score") if isinstance(assessment,dict) else None
+            confidence=assessment.get("confidence") if isinstance(assessment,dict) else None
+            readiness=None
+            if type(score) in (int,float) and type(confidence) in (int,float):
+                readiness=min(100,round((100-score)*0.5 + confidence*0.2 + min(approved,3)*10))
+            result.append({"merchant_id":str(m["id"]),"name":m["name"],"city":m["city"],
+                           "category":m["category"],"opportunity_score":readiness,
+                           "assessment_score":score,"approved_recommendations":approved,
+                           "stage":lead["stage"] if lead else "new",
+                           "outreach_approved":lead["outreach_approved"] if lead else False})
+        result.sort(key=lambda x:(x["opportunity_score"] is None,-(x["opportunity_score"] or 0)))
+        return {"opportunities":result,"caveat":"Internal prioritization, not probability of sales or marketing spend."}
+
+@app.post("/api/v2/merchants/{mid}/lead")
+def set_lead_stage(mid:uuid.UUID,data:LeadStageUpdate,authorization:str|None=Header(None)):
+    ident=current(authorization)
+    try:
+        with tenant_transaction(data_dsn(),ident) as c:
+            must_merchant(c,str(mid))
+            lead=one(c,"SELECT id FROM ms.leads WHERE merchant_id=%s",(mid,))
+            if not lead:
+                lead=one(c,"INSERT INTO ms.leads(org_id,merchant_id,created_by) VALUES(%s,%s,%s) RETURNING id",
+                         (ident["org_id"],mid,ident["user_id"]))
+            result=one(c,"UPDATE ms.leads SET stage=%s::ms.lead_stage WHERE id=%s RETURNING stage::text AS stage,outreach_approved",
+                       (data.stage,lead["id"]))
+            return result
+    except Error as exc:
+        raise HTTPException(403,"Lead stage change denied by independent approval policies") from exc
+
+@app.post("/api/v2/merchants/{mid}/outreach-approval")
+def approve_outreach(mid:uuid.UUID,data:OutreachDecision,authorization:str|None=Header(None)):
+    ident=current(authorization)
+    try:
+        with tenant_transaction(data_dsn(),ident) as c:
+            must_merchant(c,str(mid))
+            result=one(c,"UPDATE ms.leads SET outreach_approved=%s WHERE merchant_id=%s RETURNING outreach_approved,approved_by,approved_at",
+                    (data.approved,mid))
+            if not result:raise HTTPException(404,"A separate analyst must first create a lead")
+            return result
+    except Error as exc:
+        raise HTTPException(403,"Independent reviewer authorization required") from exc
+
+@app.get("/api/v2/merchants/{mid}/proposal")
+def approved_proposal(mid:uuid.UUID,authorization:str|None=Header(None)):
+    ident=current(authorization)
+    with tenant_transaction(data_dsn(),ident) as c:
+        merchant=must_merchant(c,str(mid))
+        rows=as_dict(c,"SELECT id,problem,action,rationale FROM ms.recommendations WHERE merchant_id=%s AND status='approved' ORDER BY created_at DESC",(mid,))
+        if not rows:
+            return {"status":"not_ready","reason":"Only approved evidence-linked recommendations can form a proposal."}
+        services=[]
+        for r in rows:
+            source=as_dict(c,"""SELECT e.source_url,e.observed_at,e.published_at FROM ms.recommendation_evidence re
+              JOIN ms.evidence e ON re.evidence_id=e.id AND re.org_id=e.org_id
+              WHERE re.recommendation_id=%s AND e.merchant_id=%s""",(r["id"],mid))
+            if not source:continue
+            services.append({"problem":r["problem"],"action":r["action"],"rationale":r["rationale"],
+                             "sources":[{"url":x["source_url"],"observed_at":x["observed_at"].isoformat(),
+                                         "published_at":x["published_at"].isoformat() if x["published_at"] else None} for x in source]})
+        if not services:return {"status":"not_ready","reason":"Verified linked evidence absent"}
+        return {"status":"draft_for_human_review","merchant":{"id":str(mid),"name":merchant["name"]},
+                "services":services,"disclaimer":"No sales or growth projections; no messages have been sent."}

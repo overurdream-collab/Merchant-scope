@@ -212,3 +212,46 @@ def test_secure_portfolio_is_tenant_scoped_and_missing_scores_nullable(pg,monkey
         assert data["merchants"][0]["score"] is None
         other=client.get("/api/v2/reports/portfolio?city=تعز",headers=headers)
         assert other.json()["merchant_count"]==0
+
+def test_secure_sales_pipeline_requires_independent_outreach_approval(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin,hash_password
+    from fastapi.testclient import TestClient
+    from datetime import datetime,timezone
+    from uuid import uuid4
+    suffix=uuid4().hex[:9]
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    admin_email="pipeline"+suffix+"@example.org"
+    info=bootstrap_admin(dsn,"Pipeline "+suffix,admin_email,"admin password for test 12345")
+    reviewer_email="pipeline-reviewer"+suffix+"@example.org"
+    user=uuid4()
+    pg["db"].execute("INSERT INTO ms.user_accounts(id,email,password_hash) VALUES(%s,%s,%s)",
+            (user,reviewer_email,hash_password("reviewer password for test 12345")))
+    pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",(info["org_id"],user))
+    with TestClient(app) as c:
+        def login(email,password):
+            resp=c.post("/api/v2/login",json={"email":email,"password":password,"org_id":info["org_id"]})
+            assert resp.status_code==200,resp.text
+            return {"Authorization":"Bearer "+resp.json()["access_token"]}
+        admin=login(admin_email,"admin password for test 12345")
+        reviewer=login(reviewer_email,"reviewer password for test 12345")
+        m=c.post("/api/v2/merchants",headers=admin,json={"name":"متجر الفرص","city":"صنعاء"})
+        assert m.status_code==201,m.text
+        mid=m.json()["id"]
+        response=c.get("/api/v2/opportunities",headers=admin)
+        assert response.status_code==200,response.text
+        assert response.json()["opportunities"][0]["opportunity_score"] is None
+        lead=c.post(f"/api/v2/merchants/{mid}/lead",headers=admin,json={"stage":"qualified"})
+        assert lead.status_code==200,lead.text
+        denied=c.post(f"/api/v2/merchants/{mid}/lead",headers=admin,json={"stage":"contacted"})
+        assert denied.status_code==403,denied.text
+        assert c.post(f"/api/v2/merchants/{mid}/outreach-approval",headers=admin,json={"approved":True}).status_code==403
+        approved=c.post(f"/api/v2/merchants/{mid}/outreach-approval",headers=reviewer,json={"approved":True})
+        assert approved.status_code==200,approved.text
+        assert approved.json()["outreach_approved"] is True
+        contacted=c.post(f"/api/v2/merchants/{mid}/lead",headers=admin,json={"stage":"contacted"})
+        assert contacted.status_code==200,contacted.text
+        assert contacted.json()["stage"]=="contacted"
+        assert c.get(f"/api/v2/merchants/{mid}/proposal",headers=admin).json()["status"]=="not_ready"
