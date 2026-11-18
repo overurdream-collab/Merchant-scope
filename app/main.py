@@ -1,5 +1,5 @@
 """MerchantScope local pilot: manual merchant/evidence intake, explainable analysis, review and audit."""
-import os, json, sqlite3, secrets, csv, io, re
+import os, json, sqlite3, secrets, csv, io, re, hashlib
 from pathlib import Path
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -66,7 +66,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS merchants(id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL, category TEXT, city TEXT, governorate TEXT, market TEXT, website TEXT, public_contact TEXT, created_at TEXT NOT NULL, UNIQUE(normalized,city));
         CREATE TABLE IF NOT EXISTS channels(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), platform TEXT NOT NULL, url TEXT NOT NULL UNIQUE);
         CREATE TABLE IF NOT EXISTS evidence(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), platform TEXT NOT NULL, source_url TEXT NOT NULL, observed_at TEXT NOT NULL, text TEXT, likes INTEGER, comments INTEGER, views INTEGER, created_at TEXT NOT NULL, published_at TEXT);
-        CREATE TABLE IF NOT EXISTS assessments(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), result TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS assessments(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), result TEXT NOT NULL, created_at TEXT NOT NULL, input_digest TEXT);
         CREATE TABLE IF NOT EXISTS recommendations(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), assessment_id INTEGER NOT NULL REFERENCES assessments(id), problem TEXT NOT NULL, action TEXT NOT NULL, rationale TEXT, priority TEXT, evidence_ids TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending_review', review_notes TEXT, reviewed_at TEXT);
         CREATE TABLE IF NOT EXISTS leads(merchant_id INTEGER PRIMARY KEY REFERENCES merchants(id), stage TEXT NOT NULL DEFAULT 'new', outreach_approved INTEGER NOT NULL DEFAULT 0, notes TEXT);
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, action TEXT NOT NULL, entity TEXT NOT NULL, entity_id INTEGER NOT NULL, details TEXT NOT NULL, at TEXT NOT NULL);
@@ -75,6 +75,10 @@ def init_db():
         columns = {x["name"] for x in c.execute("PRAGMA table_info(evidence)")}
         if "published_at" not in columns:
             c.execute("ALTER TABLE evidence ADD COLUMN published_at TEXT")
+        assessment_columns = {x["name"] for x in c.execute("PRAGMA table_info(assessments)")}
+        if "input_digest" not in assessment_columns:
+            c.execute("ALTER TABLE assessments ADD COLUMN input_digest TEXT")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_assessments_digest ON assessments(merchant_id,input_digest)")
 
 @app.on_event("startup")
 def startup(): init_db()
@@ -166,15 +170,28 @@ def analyze(mid:int,x_admin_token:str|None=Header(None)):
         m=merchant(c,mid)
         e=rows(c,"SELECT * FROM evidence WHERE merchant_id=?",(mid,))
         channels=rows(c,"SELECT * FROM channels WHERE merchant_id=?",(mid,))
+        # A deterministic fingerprint ensures rerunning an unchanged analysis cannot
+        # create duplicate suggestions. Ignore transient metadata and order differences.
+        relevant_merchant={key:m.get(key) for key in ("id","name","city","category","website")}
+        inputs={"merchant":relevant_merchant,"evidence":sorted(e,key=lambda x:x["id"]),
+                "channels":sorted(channels,key=lambda x:x["id"])}
+        digest=hashlib.sha256(json.dumps(inputs,sort_keys=True,ensure_ascii=False,default=str).encode("utf-8")).hexdigest()
+        existing=c.execute(
+            "SELECT id,result FROM assessments WHERE merchant_id=? AND input_digest=? ORDER BY id DESC LIMIT 1",
+            (mid,digest)).fetchone()
+        if existing:
+            return {"assessment":json.loads(existing["result"]),"assessment_id":existing["id"],
+                    "recommendations_created":0,"reused":True}
         result=assess(m,e,channels)
-        aid=c.execute("INSERT INTO assessments(merchant_id,result,created_at) VALUES(?,?,?)",(mid,json.dumps(result,ensure_ascii=False),now())).lastrowid
+        aid=c.execute("INSERT INTO assessments(merchant_id,result,created_at,input_digest) VALUES(?,?,?,?)",
+            (mid,json.dumps(result,ensure_ascii=False),now(),digest)).lastrowid
         recs=recommend(result)
         for r in recs:
             rid=c.execute("INSERT INTO recommendations(merchant_id,assessment_id,problem,action,rationale,priority,evidence_ids) VALUES(?,?,?,?,?,?,?)",
                 (mid,aid,r["problem"],r["action"],r["rationale"],r["priority"],json.dumps(r["evidence_ids"]))).lastrowid
             audit(c,"recommendation_drafted","recommendation",rid)
         audit(c,"analyze","merchant",mid,{"assessment_id":aid,"drafted":len(recs)})
-        return {"assessment":result,"recommendations_created":len(recs)}
+        return {"assessment":result,"assessment_id":aid,"recommendations_created":len(recs),"reused":False}
 @app.get("/api/reviews")
 def pending_reviews(x_admin_token:str|None=Header(None)):
     require(x_admin_token,role="viewer")
