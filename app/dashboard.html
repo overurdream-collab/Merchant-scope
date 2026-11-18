@@ -33,6 +33,16 @@ button:hover:not(:disabled){transform:translateY(-1px)}
 .item{background:#fbfdfd;border-color:#dae7e9}
 @media (max-width:750px){header{position:static}nav{position:static;overflow-x:auto;display:flex;flex-wrap:nowrap}nav button{white-space:nowrap}.chart-row{grid-template-columns:minmax(80px,1fr) minmax(60px,2fr) 30px}.report-header{display:block}}
 @media print{header,nav,.no-print{display:none!important}.panel{display:none!important}#reports{display:block!important}#reports section{border:0;padding:8px;box-shadow:none}body{background:#fff}.grid{grid-template-columns:1fr 1fr}.cards{grid-template-columns:repeat(4,1fr)}.card{min-height:auto}#reportCaveat{font-size:10px;color:black}}
+
+@media print{
+  body.print-merchant #reports{display:none!important}
+  body.print-merchant #merchants{display:block!important}
+  body.print-merchant #merchants > .grid{display:none!important}
+  body.print-merchant #dossier{display:block!important}
+  body.print-merchant #dossier form,body.print-merchant #dossier input{display:none!important}
+  body.print-portfolio #reports{display:block!important}
+  body.print-portfolio #merchants{display:none!important}
+}
 </style></head><body>
 <header><div><h1>◈ مرصد التجار</h1><p>استخبارات تسويقية قائمة على الأدلة | نسخة اختبار محلية غير مخصصة للنشر العام</p></div><div class="flex"><input type="password" id="secret" placeholder="مفتاح المحلل (لا يحفظ)" autocomplete="off"><input type="password" id="reviewerSecret" placeholder="مفتاح المراجع المستقل" autocomplete="off"></div></header>
 <main><p id="notice" class="muted">أدخل مفتاح الإدارة، ثم اضغط «تحديث».</p>
@@ -101,7 +111,7 @@ function renderMerchants(){let q=$('search').value;let list=traders.filter(x=>x.
 $('merchantForm').onsubmit=e=>{e.preventDefault();handle(async()=>{await request('/merchants','POST',Object.fromEntries(new FormData(e.target)));e.target.reset();await reload()})};
 async function showMerchant(id){await handle(async()=>{selected=id;let m=await request('/merchants/'+id),a=m.assessments[0]?JSON.parse(m.assessments[0].result):null;
 const E=x=>esc(x),list=m.evidence.map(x=>'<div class="item"><a rel="noopener noreferrer" target="_blank" href="'+E(x.source_url)+'">'+E(x.source_url)+'</a><small> '+E(x.observed_at)+' / '+E(x.platform)+'</small><p>'+E(x.text||'')+'</p></div>').join('')||'<p class="muted">لا توجد أدلة.</p>';
-$('dossier').innerHTML='<h2>ملف '+E(m.name)+'</h2><div class="flex no-print"><button id="analyze">تحليل</button><button class="secondary" onclick="window.print()">طباعة التقرير</button><button class="secondary" id="approveOutreach">اعتماد التواصل</button><select id="leadStage"><option value="new">جديد</option><option value="qualified">مؤهل</option><option value="contacted">تم التواصل</option><option value="proposal">عرض مقدم</option><option value="won">مكتسب</option><option value="lost">مفقود</option></select><button id="saveLead">تحديث فرصة البيع</button></div><div class="grid"><div><h3>قنوات '+E(m.channels.length)+'</h3>'+m.channels.map(c=>'<p><a target="_blank" rel="noopener noreferrer" href="'+E(c.url)+'">'+E(c.platform)+' — '+E(c.url)+'</a></p>').join('')+'<form id="channelForm" class="stack no-print"><input name="platform" required placeholder="المنصة"><input name="url" type="url" required placeholder="https:// رابط الحساب"><button>إضافة قناة</button></form></div><div><h3>إضافة دليل مرصود</h3><form id="evidenceForm" class="stack no-print"><input name="platform" required placeholder="المنصة"><input name="source_url" type="url" required placeholder="https:// رابط المنشور"><label>وقت الرصد</label><input type="datetime-local" required name="observed_at"><label>تاريخ النشر الحقيقي (اختياري، لا يُستنتج من الرصد)</label><input type="datetime-local" name="published_at"><textarea name="text" placeholder="نص المنشور"></textarea><div class="flex"><input name="likes" type="number" min="0" placeholder="إعجابات"><input name="comments" type="number" min="0" placeholder="تعليقات"><input name="views" type="number" min="0" placeholder="مشاهدات"></div><button>حفظ الدليل</button></form></div></div><h3>التقييم</h3><div class="cards"><div class="card"><small>النتيجة</small><strong>'+E(a?.score??'غير متاح')+'</strong></div><div class="card"><small>التغطية</small><strong>'+E(a?.coverage??'—')+'%</strong></div><div class="card"><small>الثقة</small><strong>'+E(a?.confidence??'—')+'%</strong></div></div><pre>'+E(a?JSON.stringify(a.dimensions,null,2):'لا يوجد تقييم بعد')+'</pre><h3>الأدلة ('+m.evidence.length+')</h3>'+list+'<h3>التوصيات</h3>'+m.recommendations.map(r=>'<div class="item"><b>'+E(r.problem)+'</b><p>'+E(r.action)+'</p><small>'+E(r.status)+' | أدلة: '+E(r.evidence_ids)+'</small></div>').join('')+'<p class="muted">هذا التقرير يعتمد على عينة الأدلة ولا يمثل مسحاً شاملاً لحساب التاجر.</p>';
+$('dossier').innerHTML='<h2>ملف '+E(m.name)+'</h2><div class="flex no-print"><button id="analyze">تحليل</button><button class="secondary" onclick="printMerchant()">طباعة التقرير</button><button class="secondary" id="approveOutreach">اعتماد التواصل</button><select id="leadStage"><option value="new">جديد</option><option value="qualified">مؤهل</option><option value="contacted">تم التواصل</option><option value="proposal">عرض مقدم</option><option value="won">مكتسب</option><option value="lost">مفقود</option></select><button id="saveLead">تحديث فرصة البيع</button></div><div class="grid"><div><h3>قنوات '+E(m.channels.length)+'</h3>'+m.channels.map(c=>'<p><a target="_blank" rel="noopener noreferrer" href="'+E(c.url)+'">'+E(c.platform)+' — '+E(c.url)+'</a></p>').join('')+'<form id="channelForm" class="stack no-print"><input name="platform" required placeholder="المنصة"><input name="url" type="url" required placeholder="https:// رابط الحساب"><button>إضافة قناة</button></form></div><div><h3>إضافة دليل مرصود</h3><form id="evidenceForm" class="stack no-print"><input name="platform" required placeholder="المنصة"><input name="source_url" type="url" required placeholder="https:// رابط المنشور"><label>وقت الرصد</label><input type="datetime-local" required name="observed_at"><label>تاريخ النشر الحقيقي (اختياري، لا يُستنتج من الرصد)</label><input type="datetime-local" name="published_at"><textarea name="text" placeholder="نص المنشور"></textarea><div class="flex"><input name="likes" type="number" min="0" placeholder="إعجابات"><input name="comments" type="number" min="0" placeholder="تعليقات"><input name="views" type="number" min="0" placeholder="مشاهدات"></div><button>حفظ الدليل</button></form></div></div><h3>التقييم</h3><div class="cards"><div class="card"><small>النتيجة</small><strong>'+E(a?.score??'غير متاح')+'</strong></div><div class="card"><small>التغطية</small><strong>'+E(a?.coverage??'—')+'%</strong></div><div class="card"><small>الثقة</small><strong>'+E(a?.confidence??'—')+'%</strong></div></div><pre>'+E(a?JSON.stringify(a.dimensions,null,2):'لا يوجد تقييم بعد')+'</pre><h3>الأدلة ('+m.evidence.length+')</h3>'+list+'<h3>التوصيات</h3>'+m.recommendations.map(r=>'<div class="item"><b>'+E(r.problem)+'</b><p>'+E(r.action)+'</p><small>'+E(r.status)+' | أدلة: '+E(r.evidence_ids)+'</small></div>').join('')+'<p class="muted">هذا التقرير يعتمد على عينة الأدلة ولا يمثل مسحاً شاملاً لحساب التاجر.</p>';
 $('analyze').onclick=()=>handle(async()=>{let r=await request('/merchants/'+id+'/analyze','POST');notice('أُنشئت '+r.recommendations_created+' توصيات');await showMerchant(id);await reload()});
 $('channelForm').onsubmit=e=>{e.preventDefault();handle(async()=>{await request('/merchants/'+id+'/channels','POST',Object.fromEntries(new FormData(e.target)));await showMerchant(id)})};
 $('evidenceForm').onsubmit=e=>{e.preventDefault();handle(async()=>{let o=Object.fromEntries(new FormData(e.target));o.observed_at=new Date(o.observed_at).toISOString();o.published_at=o.published_at?new Date(o.published_at).toISOString():null;for(const k of ['likes','comments','views'])o[k]=o[k]===''?null:Number(o[k]);await request('/merchants/'+id+'/evidence','POST',o);await showMerchant(id)})};
@@ -269,11 +279,21 @@ async function runPortfolioReport(){
     });
 }
 $('reportRun').onclick=runPortfolioReport;
-$('reportPrint').onclick=()=>{if(!lastPortfolioReport){notice('أنشئ التقرير أولاً',true);return;}window.print()};
+$('reportPrint').onclick=()=>{if(!lastPortfolioReport){notice('أنشئ التقرير أولاً',true);return;}printPortfolio()};
 $('reportJson').onclick=()=>{
     if(!lastPortfolioReport){notice('أنشئ التقرير أولاً',true);return;}
     const blob=new Blob([JSON.stringify(lastPortfolioReport,null,2)],{type:'application/json;charset=utf-8'});
     const url=URL.createObjectURL(blob),a=document.createElement('a');
     a.href=url;a.download='merchantscope-report.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),500);
 };
+
+function printWithMode(mode){
+  document.body.classList.remove('print-merchant','print-portfolio');
+  document.body.classList.add(mode);
+  const cleanup=()=>{document.body.classList.remove('print-merchant','print-portfolio');window.removeEventListener('afterprint',cleanup)};
+  window.addEventListener('afterprint',cleanup,{once:true});
+  window.print();
+}
+function printMerchant(){printWithMode('print-merchant')}
+function printPortfolio(){printWithMode('print-portfolio')}
 </script></body></html>
