@@ -30,3 +30,19 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements-dev.txt "psycopg[binary]>=3.2,<4"
       - run: python -m pytest -q tests/test_pg_schema.py
+      - name: Install browser acceptance tooling
+        run: |
+          pip install "playwright>=1.51,<2"
+          python -m playwright install --with-deps chromium
+      - name: Secure PostgreSQL UI end-to-end smoke
+        env:
+          MERCHANTSCOPE_SCREENSHOT_DIR: secure-ui-artifacts
+        run: python tests/pg_browser_smoke.py
+      - name: Upload secure synthetic UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merchantscope-secure-ui
+          path: secure-ui-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

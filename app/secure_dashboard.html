@@ -79,6 +79,7 @@ $('loginForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
     me=await api('/me');
     $('loginBox').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;
     $('identity').textContent=me.role+' | '+me.user_id.slice(0,8);
+    $('createBox').hidden=me.role==='reviewer'||me.role==='viewer';
     $('meInfo').textContent='المؤسسة: '+me.org_id+' — المستخدم: '+me.user_id+' — الدور: '+me.role;
     e.target.reset();await refresh();
     alertText('تم تسجيل الدخول. جميع البيانات معزولة حسب مؤسستك.');
@@ -119,6 +120,7 @@ async function loadMerchant(id){await handle(async()=>{
         alertText('تم إنشاء '+value.pending_recommendations.length+' توصيات للمراجعة.');
     });
     const print=document.createElement('button');print.textContent='طباعة الملف PDF';print.className='secondary';print.onclick=()=>window.print();
+    analyze.hidden=me.role==='reviewer'||me.role==='viewer';
     toolbar.append(analyze,print);detail.append(toolbar);
     const score=result.assessments[0]?.result||null;
     const box=document.createElement('div');box.className='metric-grid';
@@ -157,6 +159,7 @@ async function loadMerchant(id){await handle(async()=>{
         await api('/merchants/'+id+'/evidence','POST',body);
         await loadMerchant(id);alertText('تم حفظ مصدر الدليل.');
     })};
+    form.hidden=me.role==='reviewer'||me.role==='viewer';
     detail.append(form);
     paragraph(detail,'h3','التوصيات المحفوظة');
     for(const rec of result.recommendations){
