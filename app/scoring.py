@@ -13,13 +13,13 @@ def assess(merchant, evidence, channels):
         detailed = sum(len(p["text"]) >= 45 for p in posts)
         dimensions["content"] = round(50 * (calls + detailed) / len(posts))
         reasons["content"] = "Text-only CTA and length heuristic; not a visual quality rating"
-    dates = sorted({p["observed_at"][:10] for p in evidence})
+    dates = sorted({p["published_at"][:10] for p in evidence if p.get("published_at")})
     if len(dates) >= 3:
         days = [datetime.fromisoformat(d).date().toordinal() for d in dates]
         gaps = [b-a for a, b in zip(days, days[1:])]
         avg = mean(gaps)
         dimensions["consistency"] = round(100 * max(0, 1 - min(1, pstdev(gaps) / avg))) if avg else None
-        reasons["consistency"] = "Based only on observed evidence dates, not all posts"
+        reasons["consistency"] = "Based on documented publication dates; sampled posts may not represent account history"
     views = [p for p in evidence if p.get("views") and p.get("likes") is not None and p.get("comments") is not None]
     if len(views) >= 3:
         rate = mean((p["likes"] + p["comments"]) / p["views"] for p in views)

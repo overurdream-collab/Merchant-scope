@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import Literal
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from .scoring import assess, recommend
@@ -17,9 +17,24 @@ app = FastAPI(title="MerchantScope | مرصد التجار", version="0.1.0")
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def normalized(s): return " ".join(s.lower().replace("أ","ا").replace("إ","ا").replace("آ","ا").split())
-def require(token):
+def require(token, role="analyst"):
+    reviewer = os.environ.get("MERCHANTSCOPE_REVIEWER_TOKEN", "")
     if not TOKEN: raise HTTPException(503, "Set MERCHANTSCOPE_ADMIN_TOKEN to enable local pilot")
-    if not token or not secrets.compare_digest(token, TOKEN): raise HTTPException(401, "Invalid local admin token")
+    expected = reviewer if role == "reviewer" and reviewer else TOKEN
+    if not token or not secrets.compare_digest(token, expected):
+        raise HTTPException(403 if role == "reviewer" and reviewer else 401, "Access denied")
+
+@app.middleware("http")
+async def local_only_guard(request: Request, call_next):
+    host = request.client.host if request.client else ""
+    if os.environ.get("MERCHANTSCOPE_LOCAL_ONLY", "1") != "0" and host not in ("127.0.0.1","::1","localhost","testclient"):
+        return StreamingResponse(iter([b"Remote access disabled for local pilot"]),status_code=403,media_type="text/plain")
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 def check_url(value):
     p = urlparse(value)
     if p.scheme not in ("http", "https") or not p.hostname or p.username or p.password:
@@ -47,12 +62,15 @@ def init_db():
         c.executescript("""
         CREATE TABLE IF NOT EXISTS merchants(id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL, category TEXT, city TEXT, governorate TEXT, market TEXT, website TEXT, public_contact TEXT, created_at TEXT NOT NULL, UNIQUE(normalized,city));
         CREATE TABLE IF NOT EXISTS channels(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), platform TEXT NOT NULL, url TEXT NOT NULL UNIQUE);
-        CREATE TABLE IF NOT EXISTS evidence(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), platform TEXT NOT NULL, source_url TEXT NOT NULL, observed_at TEXT NOT NULL, text TEXT, likes INTEGER, comments INTEGER, views INTEGER, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS evidence(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), platform TEXT NOT NULL, source_url TEXT NOT NULL, observed_at TEXT NOT NULL, text TEXT, likes INTEGER, comments INTEGER, views INTEGER, created_at TEXT NOT NULL, published_at TEXT);
         CREATE TABLE IF NOT EXISTS assessments(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), result TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS recommendations(id INTEGER PRIMARY KEY, merchant_id INTEGER NOT NULL REFERENCES merchants(id), assessment_id INTEGER NOT NULL REFERENCES assessments(id), problem TEXT NOT NULL, action TEXT NOT NULL, rationale TEXT, priority TEXT, evidence_ids TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending_review', review_notes TEXT, reviewed_at TEXT);
         CREATE TABLE IF NOT EXISTS leads(merchant_id INTEGER PRIMARY KEY REFERENCES merchants(id), stage TEXT NOT NULL DEFAULT 'new', outreach_approved INTEGER NOT NULL DEFAULT 0, notes TEXT);
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, action TEXT NOT NULL, entity TEXT NOT NULL, entity_id INTEGER NOT NULL, details TEXT NOT NULL, at TEXT NOT NULL);
         """)
+        columns = {x["name"] for x in c.execute("PRAGMA table_info(evidence)")}
+        if "published_at" not in columns:
+            c.execute("ALTER TABLE evidence ADD COLUMN published_at TEXT")
 
 @app.on_event("startup")
 def startup(): init_db()
@@ -72,6 +90,7 @@ class Evidence(BaseModel):
     platform: str = Field(min_length=2)
     source_url: str
     observed_at: datetime
+    published_at: datetime|None = None
     text: str|None = None
     likes: int|None = Field(default=None,ge=0)
     comments: int|None = Field(default=None,ge=0)
@@ -123,12 +142,17 @@ def add_channel(mid:int,data: Channel,x_admin_token:str|None=Header(None)):
 @app.post("/api/merchants/{mid}/evidence",status_code=201)
 def add_evidence(mid:int,data:Evidence,x_admin_token:str|None=Header(None)):
     require(x_admin_token);check_url(data.source_url)
-    if data.observed_at.replace(tzinfo=data.observed_at.tzinfo or timezone.utc)>datetime.now(timezone.utc):
+    observed = data.observed_at.replace(tzinfo=data.observed_at.tzinfo or timezone.utc)
+    if observed > datetime.now(timezone.utc):
         raise HTTPException(422,"Future observation not permitted")
+    if data.published_at:
+        published = data.published_at.replace(tzinfo=data.published_at.tzinfo or timezone.utc)
+        if published > observed:
+            raise HTTPException(422,"Publication cannot be after observation")
     with conn() as c:
         merchant(c,mid)
-        r=c.execute("INSERT INTO evidence(merchant_id,platform,source_url,observed_at,text,likes,comments,views,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-             (mid,data.platform,data.source_url,data.observed_at.isoformat(),data.text,data.likes,data.comments,data.views,now()))
+        r=c.execute("INSERT INTO evidence(merchant_id,platform,source_url,observed_at,text,likes,comments,views,created_at,published_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+             (mid,data.platform,data.source_url,data.observed_at.isoformat(),data.text,data.likes,data.comments,data.views,now(),data.published_at.isoformat() if data.published_at else None))
         audit(c,"create","evidence",r.lastrowid,{"source_url":data.source_url})
         return {"id":r.lastrowid}
 @app.post("/api/merchants/{mid}/analyze")
@@ -153,7 +177,7 @@ def pending_reviews(x_admin_token:str|None=Header(None)):
     with conn() as c: return rows(c,"SELECT * FROM recommendations WHERE status='pending_review' ORDER BY id DESC")
 @app.post("/api/recommendations/{rid}/review")
 def review(rid:int,data:Review,x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="reviewer")
     with conn() as c:
         r=c.execute("SELECT status FROM recommendations WHERE id=?",(rid,)).fetchone()
         if not r: raise HTTPException(404,"Recommendation not found")
@@ -163,7 +187,7 @@ def review(rid:int,data:Review,x_admin_token:str|None=Header(None)):
         return {"status":data.decision}
 @app.post("/api/merchants/{mid}/outreach-approval")
 def outreach(mid:int,data:Outreach,x_admin_token:str|None=Header(None)):
-    require(x_admin_token)
+    require(x_admin_token,role="reviewer")
     with conn() as c:
         merchant(c,mid)
         c.execute("INSERT INTO leads(merchant_id,outreach_approved,notes) VALUES(?,?,?) ON CONFLICT(merchant_id) DO UPDATE SET outreach_approved=excluded.outreach_approved,notes=excluded.notes",(mid,int(data.approved),data.notes))
