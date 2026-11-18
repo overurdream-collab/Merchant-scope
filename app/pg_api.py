@@ -182,3 +182,44 @@ def review(rid:uuid.UUID,body:ReviewIn,authorization:str|None=Header(None)):
 def secured_dashboard():
     """Public sign-in shell; API calls require verified per-user bearer token."""
     return (Path(__file__).resolve().parent / "secure_dashboard.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/v2/reports/portfolio")
+def secure_portfolio(city:str|None=None,category:str|None=None,authorization:str|None=Header(None)):
+    """Tenant-scoped portfolio reporting; no extrapolation to an entire market."""
+    ident=current(authorization)
+    with tenant_transaction(data_dsn(),ident) as c:
+        query="SELECT id,name,city,category FROM ms.merchants WHERE 1=1"
+        args=[]
+        if city:
+            query+=" AND city=%s"
+            args.append(city)
+        if category:
+            query+=" AND category=%s"
+            args.append(category)
+        query+=" ORDER BY name,id"
+        merchants=as_dict(c,query,tuple(args))
+        entries=[]
+        for m in merchants:
+            mid=m["id"]
+            evidence_count=one(c,"SELECT count(*) AS n FROM ms.evidence WHERE merchant_id=%s",(mid,))["n"]
+            latest=one(c,"SELECT result,created_at FROM ms.assessments WHERE merchant_id=%s ORDER BY created_at DESC LIMIT 1",(mid,))
+            review=as_dict(c,"SELECT status::text AS status,count(*) AS n FROM ms.recommendations WHERE merchant_id=%s GROUP BY status",(mid,))
+            review_counts={r["status"]:r["n"] for r in review}
+            score=latest["result"].get("score") if latest and isinstance(latest["result"],dict) else None
+            coverage=latest["result"].get("coverage") if latest and isinstance(latest["result"],dict) else None
+            entries.append({"id":str(mid),"name":m["name"],"city":m["city"],"category":m["category"],
+                            "evidence_count":evidence_count,"score":score,"coverage":coverage,
+                            "review_counts":review_counts})
+        assessed=[x["score"] for x in entries if type(x["score"]) in (int,float)]
+        totals={}
+        for x in entries:
+            for status,num in x["review_counts"].items():
+                totals[status]=totals.get(status,0)+num
+        return {"scope":{"org_id":str(ident["org_id"]),"city":city,"category":category},
+                "merchant_count":len(entries),"with_evidence":sum(x["evidence_count"]>0 for x in entries),
+                "evidence_count":sum(x["evidence_count"] for x in entries),
+                "without_usable_score":len(entries)-len(assessed),
+                "average_observed_score":round(sum(assessed)/len(assessed),1) if assessed else None,
+                "recommendations":totals,"merchants":entries,
+                "caveat":"Registered merchants only. Missing analytics are unavailable and should not be treated as zero."}

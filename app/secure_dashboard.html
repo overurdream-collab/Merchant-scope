@@ -30,7 +30,7 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 .role{color:#9dded3;font-size:12px}.print-only{display:none}
 @media(max-width:900px){.split,.grid{grid-template-columns:1fr}.metric-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){header{display:block}.metric-grid{grid-template-columns:1fr}.auth{margin:12px auto}.tabs{overflow:auto;flex-wrap:nowrap}.tabs button{white-space:nowrap}}
-@media print{header,.tabs,.no-print,.auth,#alerts{display:none!important}.print-only{display:block}.panel{display:none!important}#merchantPanel{display:block!important}.split{display:block}#merchantListArea{display:none}main{padding:0}section{border:0;box-shadow:none}body{background:#fff}}
+@media print{header,.tabs,.no-print,.auth,#alerts{display:none!important}.print-only{display:block}.panel{display:none!important}#merchantPanel{display:block!important}.split{display:block}#merchantListArea{display:none}main{padding:0}section{border:0;box-shadow:none}body{background:#fff}body.print-portfolio #merchantPanel{display:none!important}body.print-portfolio #reportPanel{display:block!important}}
 </style></head><body>
 <header><div><strong>◈ مرصد التجار</strong><small>الاستخبارات التسويقية — مساحة العمل الآمنة (PostgreSQL)</small></div>
 <div class="toolbar"><span id="identity" class="role">غير مسجل الدخول</span><button class="secondary no-print" id="logout" hidden>تسجيل الخروج</button></div></header>
@@ -43,7 +43,7 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <button>الدخول إلى مرصد التجار</button></form>
 <p class="notice">لا تُحفظ كلمة المرور أو رمز الدخول في التخزين المحلي بالمتصفح. يتطلب تحديث الصفحة تسجيل دخول جديداً.</p></section>
 <div id="workspace" hidden>
-<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
+<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="reportPanel">التقارير</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
 <div class="panel" id="overviewPanel"><section><p class="subtitle">MERCHANT INTELLIGENCE / v2</p><h1>لوحة الاستخبارات التسويقية</h1><p class="subtitle">كل مؤشر يصف بيانات مؤسستك فقط، ولا يشكل إحصاءً للسوق أو وعداً بمبيعات.</p>
 <div id="overviewMetrics" class="metric-grid"></div></section><div class="grid"><section><h2>حالة العمل</h2><p>أضف تاجراً، وثّق منشوراته وروابط الأدلة، أنشئ تقييماً، ثم أرسل التوصيات إلى مراجع مستقل.</p><p class="notice">لا تؤثر التوصيات غير المعتمدة على قرارات التواصل. لا يجري إرسال رسائل تلقائياً.</p></section><section><h2>حماية البيانات</h2><p>صلاحيات المؤسسات معزولة داخل PostgreSQL باستخدام سياسات RLS. مستخدم المحلل لا يمكنه اعتماد توصيته بنفسه.</p><p class="muted">يتطلب النشر العام تأمين TLS والأسرار ومراقبة الخادم واختبار الاستعادة.</p></section></div></div>
 <div class="panel" id="merchantPanel" hidden>
@@ -51,6 +51,18 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <details id="createBox"><summary>إضافة تاجر جديد</summary><form class="stack" id="createForm"><input name="name" placeholder="اسم التاجر" required minlength="2"><input name="city" placeholder="المدينة" required><input name="category" placeholder="النشاط"><input name="market" placeholder="السوق"><input name="website" type="url" placeholder="https:// الموقع"><button>حفظ التاجر</button></form></details>
 </section><section><div id="merchantDetail"><p class="muted">اختر تاجراً من القائمة لعرض ملفه.</p></div></section></div></div>
 <div class="panel" id="reviewsPanel" hidden><section><h2>التوصيات بانتظار المراجعة</h2><p class="muted">تظهر التوصيات لمراجعين مستقلين. القرار يُسجل في PostgreSQL ولا يسمح بالاعتماد الذاتي.</p><div id="reviews"></div></section></div>
+<div class="panel" id="reportPanel" hidden>
+<section><h2>تقرير أداء التجار — PostgreSQL</h2>
+<p class="muted">خاص بالمؤسسة المسجّلة فقط. التقييمات غير المتاحة لا تُعامل كصفر.</p>
+<form class="toolbar no-print" id="reportFilter">
+<input name="city" placeholder="مدينة (اختياري)">
+<input name="category" placeholder="النشاط (اختياري)">
+<button>إنشاء التقرير</button>
+<button type="button" id="printReport" class="secondary">حفظ PDF / طباعة</button></form>
+<div id="reportSummary" class="metric-grid"></div>
+<div id="reportItems"></div>
+<p id="reportDisclaimer" class="muted"></p>
+</section></div>
 <div class="panel" id="settingsPanel" hidden><section><h2>المؤسسة والمستخدم</h2><div id="meInfo"></div><p class="notice">هذه الواجهة لا تدعم التسجيل العام؛ إنشاء الحسابات وأدوار المؤسسات يتم عبر المسؤول وأوامر التهيئة.</p></section><section><h2>مصادر البيانات</h2><p>تدعم نسخة PostgreSQL الحالية إدخال الأدلة يدوياً، وتقييماً حسابياً حذراً. موصلات المنصات لا تُفعّل دون مفاتيح وحقوق وصول.</p><p class="muted">التعامل مع بيانات OpenStreetMap أو المحتوى الاجتماعي يتطلب الالتزام بالتراخيص وسياسات المنصات.</p></section></div>
 </div>
 </main><script>
@@ -71,7 +83,7 @@ async function handle(callback){try{await callback()}catch(error){alertText(erro
 function textElement(tag,text,cls){const x=document.createElement(tag);x.textContent=String(text??'—');if(cls)x.className=cls;return x}
 function paragraph(parent,tag,text,cls){const p=textElement(tag,text,cls);parent.append(p);return p}
 function showPanel(id){document.querySelectorAll('.panel').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x.dataset.panel===id))}
-document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews()});
+document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews();if(x.dataset.panel==='reportPanel')loadPortfolio()});
 $('loginForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
     const f=Object.fromEntries(new FormData(e.target));
     const result=await api('/login','POST',f);
@@ -202,4 +214,44 @@ async function loadReviews(){
         card.append(actions);root.append(card);
     }
 })}
+
+let lastPortfolio=null;
+async function loadPortfolio() {
+ await handle(async()=>{
+  const query=new URLSearchParams();
+  const city=document.querySelector('#reportFilter [name="city"]').value.trim();
+  const category=document.querySelector('#reportFilter [name="category"]').value.trim();
+  if(city)query.set('city',city);
+  if(category)query.set('category',category);
+  const report=await api('/reports/portfolio?'+query.toString());
+  lastPortfolio=report;
+  const summary=$('reportSummary');summary.replaceChildren();
+  const items=[['تجار المؤسسة',report.merchant_count],['تجار مع أدلة',report.with_evidence],
+    ['عدد الأدلة',report.evidence_count],['تقييمات غير متاحة',report.without_usable_score],
+    ['متوسط المتاح',report.average_observed_score===null?'غير متاح':report.average_observed_score]];
+  for(const [label,value] of items){
+    const card=document.createElement('div');card.className='metric';
+    paragraph(card,'small',label);paragraph(card,'b',value);summary.append(card);
+  }
+  const root=$('reportItems');root.replaceChildren();
+  for(const item of report.merchants){
+    const div=document.createElement('div');div.className='evidence';
+    paragraph(div,'strong',item.name+' — '+item.city);
+    paragraph(div,'small','الأدلة: '+item.evidence_count+
+      ' • التقييم: '+(item.score===null?'غير متاح':item.score)+
+      ' • التغطية: '+(item.coverage===null?'غير متاح':item.coverage+'%'));
+    root.append(div);
+  }
+  if(!report.merchants.length)paragraph(root,'p','لا توجد بيانات في هذه العينة.','muted');
+  $('reportDisclaimer').textContent=report.caveat;
+ });
+}
+$('reportFilter').onsubmit=e=>{e.preventDefault();loadPortfolio()};
+$('printReport').onclick=()=>{
+ if(!lastPortfolio){alertText('أنشئ التقرير قبل الطباعة',true);return;}
+ document.body.classList.add('print-portfolio');
+ const clean=()=>{document.body.classList.remove('print-portfolio');window.removeEventListener('afterprint',clean)};
+ window.addEventListener('afterprint',clean,{once:true});
+ window.print();
+};
 </script></body></html>

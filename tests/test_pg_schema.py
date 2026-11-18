@@ -181,3 +181,34 @@ def test_admin_can_provision_independent_reviewer_offline(pg):
         create_user(dsn,str(admin_org),email,"another password string 1234","analyst")
     with pytest.raises(ValueError):
         create_user(dsn,str(admin_org),"bad-email","strong password string 1234","analyst")
+
+def test_secure_portfolio_is_tenant_scoped_and_missing_scores_nullable(pg,monkeypatch):
+    from uuid import uuid4
+    from app.pg_identity import bootstrap_admin
+    from app.pg_api import app
+    from fastapi.testclient import TestClient
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    info=bootstrap_admin(dsn,"Scoped Reporting "+suffix,"report"+suffix+"@example.org","high entropy password 12345")
+    with TestClient(app) as client:
+        result=client.post("/api/v2/login",json={"email":"report"+suffix+"@example.org","password":"high entropy password 12345","org_id":info["org_id"]})
+        assert result.status_code==200,result.text
+        headers={"Authorization":"Bearer "+result.json()["access_token"]}
+        empty=client.get("/api/v2/reports/portfolio",headers=headers)
+        assert empty.status_code==200,empty.text
+        assert empty.json()["merchant_count"]==0
+        assert empty.json()["average_observed_score"] is None
+        assert client.get("/api/v2/reports/portfolio").status_code==401
+        created=client.post("/api/v2/merchants",headers=headers,json={"name":"مصنع نموذجي","city":"صنعاء","category":"أغذية"})
+        assert created.status_code==201,created.text
+        portfolio=client.get("/api/v2/reports/portfolio?city=صنعاء",headers=headers)
+        assert portfolio.status_code==200,portfolio.text
+        data=portfolio.json()
+        assert data["merchant_count"]==1
+        assert data["without_usable_score"]==1
+        assert data["merchants"][0]["name"]=="مصنع نموذجي"
+        assert data["merchants"][0]["score"] is None
+        other=client.get("/api/v2/reports/portfolio?city=تعز",headers=headers)
+        assert other.json()["merchant_count"]==0
