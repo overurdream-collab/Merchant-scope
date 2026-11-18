@@ -71,7 +71,11 @@ def main():
                 assert page.locator("#merchants").evaluate("(x) => getComputedStyle(x).display") != "none"
                 assert page.locator("#reports").evaluate("(x) => getComputedStyle(x).display") == "none"
                 page.emulate_media(media="screen")
-                page.screenshot(path=str(Path(directory)/"smoke.png"))
+                shots=Path(os.environ.get("MERCHANTSCOPE_SCREENSHOT_DIR",directory))
+                shots.mkdir(parents=True,exist_ok=True)
+                page.screenshot(path=str(shots/"merchant-dossier.png"),full_page=True)
+                page.locator('button[data-tab="reports"]').click()
+                page.screenshot(path=str(shots/"portfolio-report.png"),full_page=True)
                 browser.close()
                 print("PASS: Arabic dashboard, synthetic merchant, dossier, portfolio metrics and print modes")
         finally:
