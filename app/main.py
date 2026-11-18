@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from .scoring import assess, recommend
-from . import agent, osm
+from . import agent, osm, reporting
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get("MERCHANTSCOPE_DB", str(ROOT.parent / "merchant_scope.db")))
@@ -464,3 +464,15 @@ def osm_confirm(data:OSMConfirmation,x_admin_token:str|None=Header(None)):
             imported.append(mid)
     return {"imported":len(imported),"ids":imported,"skipped":skipped,"attribution":osm.ATTRIBUTION,
             "caveat":"Source URL supplied by reviewer; verify its correspondence with the OSM record."}
+
+@app.get("/api/reports/portfolio")
+def portfolio_report(city:str|None=None,category:str|None=None,x_admin_token:str|None=Header(None)):
+    require(x_admin_token,role="viewer")
+    with conn() as c:
+        return reporting.portfolio_snapshot(c,city=city,category=category)
+
+@app.get("/api/merchants/{mid}/report")
+def merchant_report(mid:int,x_admin_token:str|None=Header(None)):
+    require(x_admin_token,role="viewer")
+    with conn() as c:
+        return reporting.merchant_snapshot(c,merchant(c,mid))
