@@ -131,6 +131,11 @@ def test_secure_api_full_merchant_review_cycle(pg,monkeypatch):
     pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
          (details["org_id"],reviewer))
     with TestClient(app) as c:
+        root = c.get("/")
+        assert root.status_code == 200 and "secure-dashboard.js" in root.text
+        assert "<script>" not in root.text
+        assert "script-src 'self'" in root.headers.get("Content-Security-Policy","")
+        assert c.get("/assets/secure-dashboard.js").status_code == 200
         shell=c.get("/")
         assert shell.status_code==200 and 'مرصد التجار' in shell.text
         assert 'id="loginForm"' in shell.text

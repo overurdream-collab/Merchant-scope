@@ -93,3 +93,5 @@ jobs:
       - name: Tear down local test
         if: always()
         run: docker compose down --volumes
+      - name: Validate secure frontend JavaScript
+        run: node --check app/secure_dashboard.js

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Header, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -53,6 +53,7 @@ async def headers(req:Request,call_next):
     response.headers["X-Content-Type-Options"]="nosniff"
     response.headers["X-Frame-Options"]="DENY"
     response.headers["Referrer-Policy"]="no-referrer"
+    response.headers["Content-Security-Policy"]="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
     return response
 class LoginBody(BaseModel):
     email:str=Field(min_length=3,max_length=254)
@@ -182,3 +183,7 @@ def review(rid:uuid.UUID,body:ReviewIn,authorization:str|None=Header(None)):
 def secured_dashboard():
     """Public sign-in shell; API calls require verified per-user bearer token."""
     return (Path(__file__).resolve().parent / "secure_dashboard.html").read_text(encoding="utf-8")
+
+@app.get("/assets/secure-dashboard.js",include_in_schema=False)
+def secure_dashboard_script():
+    return FileResponse(Path(__file__).resolve().parent / "secure_dashboard.js", media_type="application/javascript")
