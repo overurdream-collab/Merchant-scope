@@ -11,6 +11,7 @@ def pg():
     psycopg=pytest.importorskip("psycopg")
     with psycopg.connect(dsn,autocommit=True) as c:
         c.execute((Path(__file__).parents[1]/"db"/"postgres"/"001_init.sql").read_text(encoding="utf-8"))
+        c.execute((Path(__file__).parents[1]/"db"/"postgres"/"002_identity.sql").read_text(encoding="utf-8"))
         org_a,org_b,analyst,reviewer,other=[uuid4() for _ in range(5)]
         for org,name in ((org_a,"Team A"),(org_b,"Team B")):
             c.execute("INSERT INTO ms.organizations(id,name) VALUES (%s,%s)",(org,name))
@@ -85,3 +86,29 @@ def test_audit_is_not_user_writable(pg):
             c.execute("DELETE FROM ms.audit_events")
         assert c.execute("SELECT count(*) FROM ms.audit_events").fetchone()[0]>0
     finally:unassume(c)
+
+def test_runtime_cannot_read_accounts_or_sessions(pg):
+    c=pg["db"]
+    assume(c,pg["analyst"],pg["org_a"])
+    try:
+        with pytest.raises(Exception): c.execute("SELECT * FROM ms.user_accounts")
+        with pytest.raises(Exception): c.execute("SELECT * FROM ms.sessions")
+    finally:unassume(c)
+
+def test_user_session_and_tenant_transaction(pg):
+    from app.pg_identity import bootstrap_admin,login,resolve_session,revoke_session,tenant_transaction
+    from uuid import uuid4
+    dsn=os.environ["PG_TEST_DSN"]
+    suffix=uuid4().hex[:8]
+    details=bootstrap_admin(dsn,"Test Organization "+suffix,"test"+suffix+"@example.org","strong test password 12345")
+    tok=login(dsn,"test"+suffix+"@example.org","strong test password 12345",details["org_id"])
+    assert tok and len(tok)>30
+    assert login(dsn,"test"+suffix+"@example.org","wrong pass",details["org_id"]) is None
+    identity=resolve_session(dsn,tok)
+    assert str(identity["user_id"])==details["user_id"]
+    with tenant_transaction(dsn,identity) as db:
+        db.execute("INSERT INTO ms.merchants(org_id,name,normalized_name,city,created_by) VALUES(%s,%s,%s,%s,%s)",
+             (details["org_id"],"Sample Brand","sample brand","Sanaa",details["user_id"]))
+        assert db.execute("SELECT count(*) FROM ms.merchants").fetchone()[0]==1
+    assert revoke_session(dsn,tok)
+    assert resolve_session(dsn,tok) is None
