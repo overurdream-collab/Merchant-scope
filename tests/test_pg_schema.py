@@ -390,7 +390,7 @@ def test_secure_osm_and_agent_pipeline(pg,monkeypatch):
         assert proposal.status_code==200
         assert proposal.json()["status"]=="draft_for_human_review"
         assert proposal.json()["services"][0]["sources"][0]["url"]=="https://example.org/product"
-        assert "No messages" in proposal.json()["disclaimer"]
+        assert "no messages have been sent" in proposal.json()["disclaimer"].lower()
 
 def test_secure_agent_rejects_nonexistent_evidence_ids(pg,monkeypatch):
     from fastapi.testclient import TestClient
