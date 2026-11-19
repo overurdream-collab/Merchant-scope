@@ -375,6 +375,8 @@ $('osmSearch').onsubmit=e=>{e.preventDefault();handle(async()=>{
 })};
 
 let researchManifest=null;
+const candidateReviewDrafts=new Map();
+let candidateLoadSequence=0;
 const candidateFile=$('candidateFile');
 candidateFile.onchange=()=>handle(async()=>{
   const file=candidateFile.files[0];
@@ -411,11 +413,13 @@ candidateFile.onchange=()=>handle(async()=>{
 $('loadCandidates').onclick=loadResearchCandidates;
 $('candidateStatus').onchange=loadResearchCandidates;
 async function loadResearchCandidates(){
+  const seq=++candidateLoadSequence;
   await handle(async()=>{
     $('candidateImport').hidden=me.role==='reviewer'||me.role==='viewer';
     const params=new URLSearchParams();
     if($('candidateStatus').value)params.set('status',$('candidateStatus').value);
     const data=await api('/research/candidates?'+params.toString());
+    if(seq!==candidateLoadSequence)return;
     const root=$('candidateList');root.replaceChildren();
     paragraph(root,'p','عدد المرشحين في القائمة: '+data.count,'muted');
     if(!data.count){paragraph(root,'p','لا توجد سجلات بحث في هذه الحالة.','muted');return;}
@@ -429,12 +433,17 @@ async function loadResearchCandidates(){
       if(item.review_notes)paragraph(card,'p','ملاحظات المراجع: '+item.review_notes,'muted');
       const actions=document.createElement('div');actions.className='toolbar no-print';
       if(item.status==='unverified'&&(me.role==='reviewer'||me.role==='admin')){
-        const notes=document.createElement('textarea');notes.placeholder='ما الذي تأكدت منه عند فحص المصدر؟';notes.maxLength=2000;card.append(notes);
+        const notes=document.createElement('textarea');notes.placeholder='ما الذي تأكدت منه عند فحص المصدر؟';
+        notes.maxLength=2000;
+        notes.value=candidateReviewDrafts.get(item.id)||'';
+        notes.addEventListener('input',()=>candidateReviewDrafts.set(item.id,notes.value));
+        card.append(notes);
         for(const [choice,label] of [['reviewed','مراجعة المصدر'],['rejected','رفض السجل']]){
           const button=document.createElement('button');button.textContent=label;button.className=choice==='rejected'?'danger':'secondary';
           button.onclick=()=>handle(async()=>{
             if(notes.value.trim().length<5){alertText('اكتب سبباً مفصلاً للمراجعة',true);return;}
             await api('/research/candidates/'+item.id+'/review','POST',{decision:choice,notes:notes.value});
+            candidateReviewDrafts.delete(item.id);
             await loadResearchCandidates();alertText('تم حفظ قرار المراجعة');
           });actions.append(button);
         }

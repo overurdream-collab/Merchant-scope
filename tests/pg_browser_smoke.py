@@ -119,6 +119,7 @@ def main():
             expect(page.locator("#candidateList")).to_contain_text("تاجر تجريبي لفحص الباحث",timeout=15000)
             note=page.locator('#candidateList article textarea').first
             note.fill("صفحة الدليل متاحة، والمصدر يحتاج مراجعة نشاط إضافية")
+            expect(note).to_have_value("صفحة الدليل متاحة، والمصدر يحتاج مراجعة نشاط إضافية")
             page.locator('#candidateList article button').first.click()
             expect(page.locator("#alerts")).to_contain_text("تم حفظ قرار المراجعة",timeout=15000)
             expect(page.locator("#candidateList")).to_contain_text("reviewed",timeout=15000)
