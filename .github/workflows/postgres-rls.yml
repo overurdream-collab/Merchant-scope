@@ -111,6 +111,16 @@ jobs:
               test "$before" = "$after" || { echo "Restore sequence state mismatch: $sequence"; exit 1; }
             done
           fi
+          # Object ACLs can drift even when schema definitions and RLS policies match.
+          # Compare schema, relation/sequence and routine grants after restoration.
+          schema_acl_query="SELECT coalesce(nspacl::text, '<default>') FROM pg_namespace WHERE nspname='ms'"
+          relation_acl_query="SELECT coalesce(string_agg(format('%s:%s:%s', c.relname, c.relkind, coalesce(c.relacl::text, '<default>')), E'\\n' ORDER BY c.relname, c.relkind), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p','v','m','S','f')"
+          routine_acl_query="SELECT coalesce(string_agg(format('%s:%s:%s', p.proname, pg_get_function_identity_arguments(p.oid), coalesce(p.proacl::text, '<default>')), E'\\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms'"
+          for query in "$schema_acl_query" "$relation_acl_query" "$routine_acl_query"; do
+            before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$query")"
+            after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
+            test "$before" = "$after" || { echo "SECURITY FAILURE: restored schema/object ACL mismatch"; exit 1; }
+          done
           # SECURITY DEFINER authentication functions must never regain PUBLIC EXECUTE.
           # --no-acl on restore would silently restore PostgreSQL's default PUBLIC EXECUTE.
           privilege_query="SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE n.nspname='ms' AND p.proname IN ('login_account','lookup_session') AND acl.grantee=0 AND acl.privilege_type='EXECUTE')"
