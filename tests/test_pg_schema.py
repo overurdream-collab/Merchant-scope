@@ -342,3 +342,32 @@ def test_secure_source_url_rejects_private_targets_and_control_characters():
             valid_url(candidate)
         assert exc.value.status_code == 422
     assert valid_url("https://www.openstreetmap.org/node/321") == "https://www.openstreetmap.org/node/321"
+
+
+def test_disabled_account_and_expired_session_cannot_access_tenant(pg):
+    """P0 regression: DB-side account disable and expiry invalidate existing bearer tokens."""
+    from app.pg_identity import bootstrap_admin, login, resolve_session
+    from uuid import uuid4
+    dsn = os.environ["PG_TEST_DSN"]
+    suffix = uuid4().hex[:10]
+    email = f"disabled-{suffix}@example.org"
+    info = bootstrap_admin(dsn, "Session revocation " + suffix, email, "long synthetic password 12345")
+    token = login(dsn, email, "long synthetic password 12345", info["org_id"])
+    assert token and resolve_session(dsn, token)
+    pg["db"].execute(
+        "UPDATE ms.user_accounts SET disabled_at=now() WHERE id=%s",
+        (info["user_id"],),
+    )
+    assert resolve_session(dsn, token) is None
+    assert login(dsn, email, "long synthetic password 12345", info["org_id"]) is None
+
+    second = f"expired-{suffix}@example.org"
+    other = bootstrap_admin(dsn, "Expiry test " + suffix, second, "another synthetic password 12345")
+    expired_token = login(dsn, second, "another synthetic password 12345", other["org_id"])
+    assert expired_token and resolve_session(dsn, expired_token)
+    from app.pg_identity import token_hash
+    pg["db"].execute(
+        "UPDATE ms.sessions SET expires_at=now()-interval '1 second' WHERE token_hash=%s",
+        (token_hash(expired_token),),
+    )
+    assert resolve_session(dsn, expired_token) is None
