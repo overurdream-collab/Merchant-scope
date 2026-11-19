@@ -36,7 +36,7 @@ def valid_url(s:str):
         port=u.port  # Reject malformed/non-numeric ports before storing provenance.
     except ValueError as exc:
         raise HTTPException(422,"Invalid source URL") from exc
-    if (len(s)>2048 or any(ch.isspace() or ord(ch)==127 or ch=="\\\\" for ch in s)
+    if (len(s)>2048 or any(ch.isspace() or ord(ch)==127 or ch=="\\" for ch in s)
         or u.scheme not in ("https","http") or not u.hostname
         or u.username or u.password or u.fragment):
         raise HTTPException(422,"Invalid source URL")
