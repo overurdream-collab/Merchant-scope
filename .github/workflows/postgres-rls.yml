@@ -38,6 +38,26 @@ jobs:
         env:
           MERCHANTSCOPE_SCREENSHOT_DIR: secure-ui-artifacts
         run: python tests/pg_browser_smoke.py
+      - name: Rehearse PostgreSQL backup and restore into separate disposable database
+        shell: bash
+        run: |
+          set -euo pipefail
+          service="${{ job.services.postgres.id }}"
+          echo "Backing up disposable CI research data only; no live databases."
+          docker exec "$service" pg_dump -U postgres -d merchantscope_test -n ms -Fc > "$RUNNER_TEMP/merchantscope-ci.dump"
+          test -s "$RUNNER_TEMP/merchantscope-ci.dump"
+          docker exec "$service" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE merchantscope_restore'
+          docker exec -i "$service" pg_restore --exit-on-error --no-owner --no-acl -U postgres -d merchantscope_restore < "$RUNNER_TEMP/merchantscope-ci.dump"
+          for table in organizations merchants research_candidates evidence recommendations audit_events; do
+            before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "SELECT count(*) FROM ms.$table")"
+            after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT count(*) FROM ms.$table")"
+            test "$before" = "$after" || { echo "Restore mismatch: $table"; exit 1; }
+            echo "Restored $table: $after records"
+          done
+          security="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass")"
+          test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
+          echo "SUCCESS: disposable schema/data and candidate RLS restored."
+
       - name: Upload secure synthetic UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
