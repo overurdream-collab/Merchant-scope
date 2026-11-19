@@ -12,6 +12,7 @@ def pg():
     with psycopg.connect(dsn,autocommit=True) as c:
         c.execute((Path(__file__).parents[1]/"db"/"postgres"/"001_init.sql").read_text(encoding="utf-8"))
         c.execute((Path(__file__).parents[1]/"db"/"postgres"/"002_identity.sql").read_text(encoding="utf-8"))
+        c.execute((Path(__file__).parents[1]/"db"/"postgres"/"003_research_candidates.sql").read_text(encoding="utf-8"))
         org_a,org_b,analyst,reviewer,other=[uuid4() for _ in range(5)]
         for org,name in ((org_a,"Team A"),(org_b,"Team B")):
             c.execute("INSERT INTO ms.organizations(id,name) VALUES (%s,%s)",(org,name))
@@ -371,3 +372,103 @@ def test_disabled_account_and_expired_session_cannot_access_tenant(pg):
         (token_hash(expired_token),),
     )
     assert resolve_session(dsn, expired_token) is None
+
+
+def test_research_candidate_intake_independent_review_and_promote(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from app.pg_users import create_user
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    from datetime import date
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    admin_email=f"research-{suffix}@example.org"
+    org=bootstrap_admin(dsn,"Research "+suffix,admin_email,"Strong synthetic password 456")
+    reviewer_email=f"research-review-{suffix}@example.org"
+    create_user(dsn,org["org_id"],reviewer_email,"Different strong password 789","reviewer")
+    with TestClient(app) as client:
+        def auth(email,password):
+            r=client.post("/api/v2/login",json={"email":email,"password":password,"org_id":org["org_id"]})
+            assert r.status_code==200,r.text
+            return {"Authorization":"Bearer "+r.json()["access_token"]}
+        admin=auth(admin_email,"Strong synthetic password 456")
+        reviewer=auth(reviewer_email,"Different strong password 789")
+        record={"name":"مخبز عينة بحث","city":"صنعاء","category":"مخبوزات",
+                "source_url":"https://happynew.day/vendor/sample-synthetic-bakery",
+                "source_kind":"public_directory_listing","observed_on":date.today().isoformat()}
+        payload={"confirm":True,"records":[record]}
+        assert client.post("/api/v2/research/candidates/import",json=payload).status_code==401
+        assert client.post("/api/v2/research/candidates/import",headers=admin,json={**payload,"confirm":False}).status_code==422
+        assert client.post("/api/v2/research/candidates/import",headers=reviewer,json=payload).status_code==403
+        inserted=client.post("/api/v2/research/candidates/import",headers=admin,json=payload)
+        assert inserted.status_code==200,inserted.text
+        assert inserted.json()["inserted"]==1
+        assert inserted.json()["outreach_permitted"] is False
+        candidate_id=inserted.json()["ids"][0]
+        again=client.post("/api/v2/research/candidates/import",headers=admin,json=payload)
+        assert again.status_code==200 and again.json()["inserted"]==0
+        assert len(again.json()["duplicates"])==1
+        viewed=client.get("/api/v2/research/candidates?status=unverified",headers=reviewer)
+        assert viewed.status_code==200 and any(str(x["id"])==candidate_id for x in viewed.json()["candidates"])
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=admin).status_code==409
+        decision={"decision":"reviewed","notes":"تمت مراجعة رابط القائمة؛ لا موافقة على التواصل"}
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/review",headers=admin,json=decision).status_code==403
+        approval=client.post(f"/api/v2/research/candidates/{candidate_id}/review",headers=reviewer,json=decision)
+        assert approval.status_code==200,approval.text
+        assert approval.json()["status"]=="reviewed"
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/review",headers=reviewer,json=decision).status_code==404
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=reviewer).status_code==403
+        promotion=client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=admin)
+        assert promotion.status_code==200,promotion.text
+        merchant_id=promotion.json()["merchant_id"]
+        assert promotion.json()["analysis_status"]=="not_assessed"
+        assert promotion.json()["outreach_approved"] is False
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=admin).status_code==409
+        detail=client.get(f"/api/v2/merchants/{merchant_id}",headers=admin).json()
+        assert detail["evidence"]==[]
+        with pg["db"].cursor() as cursor:
+            cursor.execute("SELECT url,platform FROM ms.channels WHERE merchant_id=%s",(merchant_id,))
+            row=cursor.fetchone()
+            assert row[0]==record["source_url"] and row[1]=="directory_listing"
+            cursor.execute("SELECT action,entity FROM ms.audit_events WHERE entity='research_candidates' AND org_id=%s",(org["org_id"],))
+            assert len(cursor.fetchall())>=3
+
+
+def test_research_source_validation_and_cross_tenant_access(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    from datetime import date
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    names=[]
+    for n in range(2):
+        suffix=uuid4().hex[:8]
+        email=f"candidate-tenant-{suffix}@example.org"
+        o=bootstrap_admin(dsn,"Tenant "+suffix,email,"Synthetic complex password 123")
+        names.append((o,email))
+    with TestClient(app) as client:
+        tokens=[]
+        for info,email in names:
+            r=client.post("/api/v2/login",json={"email":email,"password":"Synthetic complex password 123","org_id":info["org_id"]})
+            assert r.status_code==200,r.text
+            tokens.append({"Authorization":"Bearer "+r.json()["access_token"]})
+        record={"name":"متجر فحص","city":"صنعاء","category":"تجزئة",
+                "source_url":"https://happynew.day/vendor/synthetic",
+                "observed_on":date.today().isoformat()}
+        bad=client.post("/api/v2/research/candidates/import",headers=tokens[0],json={
+           "confirm":True,"records":[{**record,"source_url":"http://localhost/private"}]})
+        assert bad.status_code==422
+        valid=client.post("/api/v2/research/candidates/import",headers=tokens[0],json={"confirm":True,"records":[record]})
+        assert valid.status_code==200,valid.text
+        cid=valid.json()["ids"][0]
+        other=client.get("/api/v2/research/candidates",headers=tokens[1])
+        assert other.status_code==200 and other.json()["count"]==0
+        assert client.post(f"/api/v2/research/candidates/{cid}/review",headers=tokens[1],json={
+            "decision":"reviewed","notes":"This candidate belongs to another organization"}).status_code==404
+        assert client.post(f"/api/v2/research/candidates/{cid}/promote?confirm=true",headers=tokens[1]).status_code==404
