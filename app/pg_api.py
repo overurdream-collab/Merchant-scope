@@ -304,3 +304,30 @@ def approved_proposal(mid:uuid.UUID,authorization:str|None=Header(None)):
         if not services:return {"status":"not_ready","reason":"Verified linked evidence absent"}
         return {"status":"draft_for_human_review","merchant":{"id":str(mid),"name":merchant["name"]},
                 "services":services,"disclaimer":"No sales or growth projections; no messages have been sent."}
+
+
+@app.get("/api/v2/compare")
+def secure_compare(ids:str,authorization:str|None=Header(None)):
+    """Compare a bounded list of merchants visible to current tenant only."""
+    ident=current(authorization)
+    raw=[s.strip() for s in ids.split(",")]
+    if not 2<=len(raw)<=10 or not all(raw):
+        raise HTTPException(422,"Choose 2–10 merchant IDs")
+    try:
+        keys=list(dict.fromkeys(uuid.UUID(x) for x in raw))
+    except (TypeError,ValueError) as exc:
+        raise HTTPException(422,"Invalid merchant UUID") from exc
+    if len(keys)<2:
+        raise HTTPException(422,"At least two distinct merchants required")
+    with tenant_transaction(data_dsn(),ident) as c:
+        results=[]
+        for mid in keys:
+            m=must_merchant(c,str(mid))
+            latest=one(c,"SELECT result FROM ms.assessments WHERE merchant_id=%s ORDER BY created_at DESC LIMIT 1",(mid,))
+            count=one(c,"SELECT count(*) AS n FROM ms.evidence WHERE merchant_id=%s",(mid,))["n"]
+            assessment=latest["result"] if latest else None
+            results.append({"merchant_id":str(mid),"name":m["name"],"city":m["city"],
+                            "category":m["category"],"evidence_count":count,
+                            "score":assessment.get("score") if isinstance(assessment,dict) else None,
+                            "coverage":assessment.get("coverage") if isinstance(assessment,dict) else None})
+        return {"results":results,"caveat":"Comparison of recorded evidence, not objective market share or competitor revenue."}

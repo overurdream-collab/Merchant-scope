@@ -255,3 +255,32 @@ def test_secure_sales_pipeline_requires_independent_outreach_approval(pg,monkeyp
         assert contacted.status_code==200,contacted.text
         assert contacted.json()["stage"]=="contacted"
         assert c.get(f"/api/v2/merchants/{mid}/proposal",headers=admin).json()["status"]=="not_ready"
+
+def test_secure_competitor_comparison_is_tenant_isolated(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    suffix=uuid4().hex[:8]
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    identity=bootstrap_admin(dsn,"Comparison "+suffix,"compare"+suffix+"@example.org","complex test password 12345")
+    with TestClient(app) as c:
+        auth=c.post("/api/v2/login",json={"email":"compare"+suffix+"@example.org","password":"complex test password 12345","org_id":identity["org_id"]})
+        assert auth.status_code==200,auth.text
+        headers={"Authorization":"Bearer "+auth.json()["access_token"]}
+        ids=[]
+        for name in ("تاجر أ","تاجر ب"):
+            resp=c.post("/api/v2/merchants",headers=headers,json={"name":name,"city":"صنعاء"})
+            assert resp.status_code==201,resp.text
+            ids.append(resp.json()["id"])
+        result=c.get("/api/v2/compare?ids="+",".join(ids),headers=headers)
+        assert result.status_code==200,result.text
+        assert len(result.json()["results"])==2
+        assert all(x["score"] is None for x in result.json()["results"])
+        assert c.get("/api/v2/compare?ids="+ids[0],headers=headers).status_code==422
+        assert c.get("/api/v2/compare?ids="+",".join(ids)).status_code==401
+        # Merchant from a different organization must never be returned.
+        foreign=c.get("/api/v2/compare?ids="+ids[0]+","+str(pg["m1"]),headers=headers)
+        assert foreign.status_code==404
