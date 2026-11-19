@@ -46,7 +46,8 @@ def valid_url(s:str):
         address=None
     if address is not None and not address.is_global:
         raise HTTPException(422,"Private or non-public source URL")
-    if u.hostname.lower() in ("localhost",) or u.hostname.lower().endswith((".localhost",".local",".internal")):
+    hostname = u.hostname.lower().rstrip(".")
+    if hostname in ("localhost",) or hostname.endswith((".localhost",".local",".internal")):
         raise HTTPException(422,"Private or non-public source URL")
     return s
 def norm(s:str):return " ".join(s.strip().lower().replace("أ","ا").replace("إ","ا").replace("آ","ا").split())
