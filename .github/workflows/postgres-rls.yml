@@ -99,7 +99,7 @@ jobs:
           test "$before" = "$after" || { echo "Restored SQL function definitions or security flags differ"; exit 1; }
           # SECURITY DEFINER authentication functions must never regain PUBLIC EXECUTE.
           # --no-acl on restore would silently restore PostgreSQL's default PUBLIC EXECUTE.
-          privilege_query="SELECT has_function_privilege('public', 'ms.login_account(text,uuid)', 'EXECUTE') OR has_function_privilege('public', 'ms.lookup_session(bytea)', 'EXECUTE')"
+          privilege_query="SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE n.nspname='ms' AND p.proname IN ('login_account','lookup_session') AND acl.grantee=0 AND acl.privilege_type='EXECUTE')"
           for database in merchantscope_test merchantscope_restore; do
             exposed="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$privilege_query")"
             test "$exposed" = "f" || { echo "SECURITY FAILURE: public authentication function EXECUTE in $database"; exit 1; }
