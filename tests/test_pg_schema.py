@@ -334,7 +334,7 @@ def test_secure_source_url_rejects_private_targets_and_control_characters():
         "http://[::1]/",
         "http://localhost:8000/",
         "https://service.internal/path",
-        "https://example.org/path\\r\\nInjected: yes",
+        "https://example.org/path\r\nInjected: yes",
         "https://example.org/" + "x" * 2100,
         "https://example.org/path#fragment",
     ):
