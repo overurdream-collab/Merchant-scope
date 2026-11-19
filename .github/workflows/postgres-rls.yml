@@ -91,6 +91,12 @@ jobs:
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
             test "$before" = "$after" || { echo "Restored schema columns/defaults, constraints, indexes or triggers differ"; exit 1; }
           done
+          # Audit and authorization may depend on SQL functions, which earlier comparisons omitted.
+          # Compare function signatures, definitions and execution-security flags after restore.
+          function_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s', p.proname, pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid), p.prosecdef, p.provolatile, pg_get_functiondef(p.oid)), E'\\\\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prokind IN ('f','p')"
+          before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$function_query")"
+          after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$function_query")"
+          test "$before" = "$after" || { echo "Restored SQL function definitions or security flags differ"; exit 1; }
           security="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass")"
           test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
           echo "SUCCESS: disposable tables, rows, column defaults, constraints, indexes, triggers, RLS flags and policies restored."
