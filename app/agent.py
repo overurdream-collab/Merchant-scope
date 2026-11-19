@@ -63,8 +63,8 @@ def run_model(mode, merchant, evidence):
         raise HTTPException(502,"Model returned invalid JSON") from exc
     return output
 
-PERCENT_RE=re.compile(r"[0-9٠-٩]+(?:[.,٫][0-9٠-٩]+)?\\s*[%٪]")
-GUARANTEE_RE=re.compile(r"(?i)\\b(?:guarantee|guaranteed|certainly)\\b|مضمونة|مضمون|نضمن|سيحقق|سنحقق")
+PERCENT_RE=re.compile(r"[0-9٠-٩]+(?:[.,٫][0-9٠-٩]+)?\s*[%٪]")
+GUARANTEE_RE=re.compile(r"(?i)\b(?:guarantee|guaranteed|certainly)\b|مضمونة|مضمون|نضمن|سيحقق|سنحقق|ستزيد|سيزيد|سيرتفع|سترتفع")
 
 def requires_fact_check(text, sources):
     """Reject quantitative and guaranteed outcomes unsupported even by supplied evidence.
