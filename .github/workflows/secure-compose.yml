@@ -69,6 +69,7 @@ jobs:
       - name: Tear down disposable stack and data
         if: always()
         run: |
+          docker compose --env-file .env.secure -f compose.secure.yml logs --no-color db | tail -80 || true
           docker compose --env-file .env.secure -f compose.secure.yml logs --no-color web | tail -60 || true
           docker compose --env-file .env.secure -f compose.secure.yml down -v --remove-orphans || true
           rm -f .env.secure

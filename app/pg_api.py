@@ -356,12 +356,13 @@ class SecureOSMImport(BaseModel):
 
 @app.post("/api/v2/discovery/osm")
 def secure_osm_preview(body:SecureOSMSearch,authorization:str|None=Header(None)):
-    current(authorization)
+    must_write(current(authorization))
     return osm.discover(body.lat,body.lon,body.radius_m,body.category)
 
 @app.post("/api/v2/discovery/osm/commit")
 def secure_osm_import(body:SecureOSMImport,authorization:str|None=Header(None)):
     ident=current(authorization)
+    must_write(ident)
     if not body.confirm:raise HTTPException(422,"Manual confirmation required")
     from re import fullmatch
     for item in body.merchants:
