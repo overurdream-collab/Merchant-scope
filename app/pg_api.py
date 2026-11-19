@@ -5,6 +5,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
+import ipaddress
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import HTMLResponse
 from pathlib import Path
@@ -30,8 +31,18 @@ def current(authorization:str|None=Header(None)):
     return identity
 def valid_url(s:str):
     u=urlsplit(s)
-    if u.scheme not in ("https","http") or not u.hostname or u.username or u.password:
+    if (len(s)>2048 or any(ord(ch)<32 or ord(ch)==127 for ch in s)
+        or u.scheme not in ("https","http") or not u.hostname
+        or u.username or u.password or u.fragment):
         raise HTTPException(422,"Invalid source URL")
+    try:
+        address=ipaddress.ip_address(u.hostname)
+    except ValueError:
+        address=None
+    if address is not None and not address.is_global:
+        raise HTTPException(422,"Private or non-public source URL")
+    if u.hostname.lower() in ("localhost",) or u.hostname.lower().endswith((".localhost",".local",".internal")):
+        raise HTTPException(422,"Private or non-public source URL")
     return s
 def norm(s:str):return " ".join(s.strip().lower().replace("أ","ا").replace("إ","ا").replace("آ","ا").split())
 def as_dict(conn,sql,args=()):
