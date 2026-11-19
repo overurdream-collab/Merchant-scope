@@ -54,9 +54,27 @@ jobs:
             test "$before" = "$after" || { echo "Restore mismatch: $table"; exit 1; }
             echo "Restored $table: $after records"
           done
+          # Compare every user table and every RLS policy, not just a single table.
+          # A restored database can have identical rows while silently losing a policy.
+          table_query="SELECT string_agg(format('%I', tablename), ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='ms'"
+          source_tables="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$table_query")"
+          restored_tables="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$table_query")"
+          test -n "$source_tables" && test "$source_tables" = "$restored_tables" || { echo "Restored table inventory differs"; exit 1; }
+          for table in ${source_tables//,/ }; do
+            before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "SELECT count(*) FROM ms.$table")"
+            after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT count(*) FROM ms.$table")"
+            test "$before" = "$after" || { echo "Restore mismatch: $table"; exit 1; }
+          done
+          rls_query="SELECT string_agg(format('%s:%s:%s', c.relname, c.relrowsecurity, c.relforcerowsecurity), ',' ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p')"
+          policy_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s:%s', tablename, policyname, permissive, roles::text, cmd, coalesce(qual,''), coalesce(with_check,'')), E'\\n' ORDER BY tablename, policyname), '') FROM pg_policies WHERE schemaname='ms'"
+          for query in "$rls_query" "$policy_query"; do
+            before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$query")"
+            after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
+            test "$before" = "$after" || { echo "Restored RLS configuration or policies differ"; exit 1; }
+          done
           security="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass")"
           test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
-          echo "SUCCESS: disposable schema/data and candidate RLS restored."
+          echo "SUCCESS: disposable tables, rows, RLS flags and policies restored."
 
       - name: Upload secure synthetic UI screenshots
         if: always()
