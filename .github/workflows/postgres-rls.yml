@@ -97,6 +97,20 @@ jobs:
           before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$function_query")"
           after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$function_query")"
           test "$before" = "$after" || { echo "Restored SQL function definitions or security flags differ"; exit 1; }
+          # Restored rows can match while sequences silently restart, causing duplicate IDs.
+          # Verify sequence inventory and durable state (last_value/is_called) across databases.
+          sequence_query="SELECT coalesce(string_agg(format('%I', sequencename), ',' ORDER BY sequencename), '') FROM pg_sequences WHERE schemaname='ms'"
+          source_sequences="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$sequence_query")"
+          restored_sequences="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$sequence_query")"
+          test "$source_sequences" = "$restored_sequences" || { echo "Restore sequence inventory mismatch"; exit 1; }
+          if [ -n "$source_sequences" ]; then
+            for sequence in ${source_sequences//,/ }; do
+              sequence_state_sql="SELECT last_value::text || ':' || is_called::text FROM ms.$sequence"
+              before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$sequence_state_sql")"
+              after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$sequence_state_sql")"
+              test "$before" = "$after" || { echo "Restore sequence state mismatch: $sequence"; exit 1; }
+            done
+          fi
           # SECURITY DEFINER authentication functions must never regain PUBLIC EXECUTE.
           # --no-acl on restore would silently restore PostgreSQL's default PUBLIC EXECUTE.
           privilege_query="SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE n.nspname='ms' AND p.proname IN ('login_account','lookup_session') AND acl.grantee=0 AND acl.privilege_type='EXECUTE')"
