@@ -47,6 +47,15 @@ def valid_url(s:str):
     if address is not None and not address.is_global:
         raise HTTPException(422,"Private or non-public source URL")
     hostname = u.hostname.lower().rstrip(".")
+    # A source hostname must be an unambiguous public DNS name or global IP.
+    # Reject percent-encoded authority, IDNA ambiguity and malformed DNS labels.
+    # The URL is provenance metadata, not a destination we should resolve here.
+    if address is None:
+        import re
+        if (not hostname.isascii() or "%" in hostname or len(hostname)>253
+            or "." not in hostname or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                                      for label in hostname.split("."))):
+            raise HTTPException(422,"Invalid source hostname")
     # URL consumers may resolve integer, hexadecimal or octal IPv4 spellings
     # (for example 2130706433 or 0x7f000001) to a loopback address.
     # Do not store these ambiguous hostnames as trusted public provenance.
