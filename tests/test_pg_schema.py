@@ -511,3 +511,36 @@ def test_full_30_sanaa_source_manifest_stages_without_merchant_or_contact_effect
                           json={"confirm":True,"records":records})
         assert again.status_code==200 and again.json()["inserted"]==0
         assert len(again.json()["duplicates"])==30
+
+
+def test_authentication_functions_not_callable_by_runtime_or_public(pg):
+    """Fail closed if an auth migration accidentally exposes credential/session lookups."""
+    c = pg["db"]
+    functions = ("ms.login_account(text,uuid)", "ms.lookup_session(bytea)")
+    for signature in functions:
+        # PUBLIC has no EXECUTE; the tenant runtime must not acquire it either.
+        assert c.execute(
+            "SELECT has_function_privilege('merchant_runtime', %s, 'EXECUTE')",
+            (signature,),
+        ).fetchone()[0] is False, signature
+        assert c.execute(
+            "SELECT has_function_privilege('merchant_auth', %s, 'EXECUTE')",
+            (signature,),
+        ).fetchone()[0] is True, signature
+        assert c.execute(
+            """SELECT NOT EXISTS (
+                 SELECT 1 FROM pg_proc p
+                 CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                 WHERE p.oid = %s::regprocedure AND a.grantee = 0
+                   AND a.privilege_type = 'EXECUTE'
+               )""",
+            (signature,),
+        ).fetchone()[0] is True, signature
+    assume(c, pg["analyst"], pg["org_a"])
+    try:
+        with pytest.raises(Exception):
+            c.execute("SELECT * FROM ms.login_account('nobody@example.org', %s)", (pg["org_a"],))
+        with pytest.raises(Exception):
+            c.execute("SELECT * FROM ms.lookup_session(%s)", (bytes(32),))
+    finally:
+        unassume(c)
