@@ -71,7 +71,7 @@ async function handle(callback){try{await callback()}catch(error){alertText(erro
 function textElement(tag,text,cls){const x=document.createElement(tag);x.textContent=String(text??'—');if(cls)x.className=cls;return x}
 function paragraph(parent,tag,text,cls){const p=textElement(tag,text,cls);parent.append(p);return p}
 function showPanel(id){document.querySelectorAll('.panel').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x.dataset.panel===id))}
-document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews()});
+document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel'){$('reviews').replaceChildren();paragraph($('reviews'),'p','جاري تحديث قائمة المراجعة...','muted');loadReviews()}});
 $('loginForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
     const f=Object.fromEntries(new FormData(e.target));
     const result=await api('/login','POST',f);
