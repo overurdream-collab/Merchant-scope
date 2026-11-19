@@ -43,13 +43,30 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <button>الدخول إلى مرصد التجار</button></form>
 <p class="notice">لا تُحفظ كلمة المرور أو رمز الدخول في التخزين المحلي بالمتصفح. يتطلب تحديث الصفحة تسجيل دخول جديداً.</p></section>
 <div id="workspace" hidden>
-<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
+<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="discoveryPanel">اكتشاف التجار</button><button data-panel="intelligencePanel">التحليل والفرص</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
 <div class="panel" id="overviewPanel"><section><p class="subtitle">MERCHANT INTELLIGENCE / v2</p><h1>لوحة الاستخبارات التسويقية</h1><p class="subtitle">كل مؤشر يصف بيانات مؤسستك فقط، ولا يشكل إحصاءً للسوق أو وعداً بمبيعات.</p>
 <div id="overviewMetrics" class="metric-grid"></div></section><div class="grid"><section><h2>حالة العمل</h2><p>أضف تاجراً، وثّق منشوراته وروابط الأدلة، أنشئ تقييماً، ثم أرسل التوصيات إلى مراجع مستقل.</p><p class="notice">لا تؤثر التوصيات غير المعتمدة على قرارات التواصل. لا يجري إرسال رسائل تلقائياً.</p></section><section><h2>حماية البيانات</h2><p>صلاحيات المؤسسات معزولة داخل PostgreSQL باستخدام سياسات RLS. مستخدم المحلل لا يمكنه اعتماد توصيته بنفسه.</p><p class="muted">يتطلب النشر العام تأمين TLS والأسرار ومراقبة الخادم واختبار الاستعادة.</p></section></div></div>
 <div class="panel" id="merchantPanel" hidden>
 <div class="split"><section id="merchantListArea"><h2>دليل التجار</h2><div id="merchantList"></div>
 <details id="createBox"><summary>إضافة تاجر جديد</summary><form class="stack" id="createForm"><input name="name" placeholder="اسم التاجر" required minlength="2"><input name="city" placeholder="المدينة" required><input name="category" placeholder="النشاط"><input name="market" placeholder="السوق"><input name="website" type="url" placeholder="https:// الموقع"><button>حفظ التاجر</button></form></details>
 </section><section><div id="merchantDetail"><p class="muted">اختر تاجراً من القائمة لعرض ملفه.</p></div></section></div></div>
+<div class="panel" id="discoveryPanel" hidden>
+<section><h2>استكشاف تجار من بيانات OpenStreetMap المفتوحة</h2>
+<p class="muted">النتائج محدودة، وقد تكون ناقصة أو قديمة؛ لا يُدخل أي تاجر إلا بعد فحص رابط المصدر وموافقتك الصريحة.</p>
+<form id="osmForm" class="stack no-print">
+<div class="grid"><label>خط العرض<input name="lat" type="number" step="any" min="-90" max="90" value="15.369" required></label>
+<label>خط الطول<input name="lon" type="number" step="any" min="-180" max="180" value="44.191" required></label>
+<label>المدينة المراد حفظها<input name="city" value="صنعاء" required></label>
+<label>نصف القطر بالمتر<input name="radius_m" type="number" min="100" max="3000" value="1200" required></label>
+<label>نوع النشاط<select name="category"><option value="shop">محلات تجارية</option><option value="restaurant">مطاعم</option><option value="cafe">مقاهٍ</option><option value="pharmacy">صيدليات</option></select></label></div>
+<button>بحث في السجلات المفتوحة</button></form><div id="osmResults"></div>
+<p class="muted"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors — ODbL</a>. ظهور النشاط لا يعني التحقق من ملكيته أو أنه يستقبل العملاء حالياً.</p></section></div>
+<div class="panel" id="intelligencePanel" hidden>
+<section><h2>تحليل الأسواق — بيانات المؤسسة فقط</h2>
+<form id="marketForm" class="toolbar no-print"><input name="city" placeholder="مدينة (اختياري)"><input name="category" placeholder="قطاع (اختياري)"><button>تحليل العينة</button></form>
+<div id="marketResults"></div><p class="muted">العينة ليست تعداداً للسوق ولا تقديراً لحصة سوقية أو مبيعات.</p></section>
+<section><h2>فرص الخدمات التسويقية</h2><p class="muted">ترتيب داخلي قائم على الأدلة المتاحة؛ لا يمثل احتمالات تحويل العملاء أو أرباحاً متوقعة.</p>
+<div id="opportunityResults"></div></section></div>
 <div class="panel" id="reviewsPanel" hidden><section><h2>التوصيات بانتظار المراجعة</h2><p class="muted">تظهر التوصيات لمراجعين مستقلين. القرار يُسجل في PostgreSQL ولا يسمح بالاعتماد الذاتي.</p><div id="reviews"></div></section></div>
 <div class="panel" id="settingsPanel" hidden><section><h2>المؤسسة والمستخدم</h2><div id="meInfo"></div><p class="notice">هذه الواجهة لا تدعم التسجيل العام؛ إنشاء الحسابات وأدوار المؤسسات يتم عبر المسؤول وأوامر التهيئة.</p></section><section><h2>مصادر البيانات</h2><p>تدعم نسخة PostgreSQL الحالية إدخال الأدلة يدوياً، وتقييماً حسابياً حذراً. موصلات المنصات لا تُفعّل دون مفاتيح وحقوق وصول.</p><p class="muted">التعامل مع بيانات OpenStreetMap أو المحتوى الاجتماعي يتطلب الالتزام بالتراخيص وسياسات المنصات.</p></section></div>
 </div>
@@ -71,7 +88,7 @@ async function handle(callback){try{await callback()}catch(error){alertText(erro
 function textElement(tag,text,cls){const x=document.createElement(tag);x.textContent=String(text??'—');if(cls)x.className=cls;return x}
 function paragraph(parent,tag,text,cls){const p=textElement(tag,text,cls);parent.append(p);return p}
 function showPanel(id){document.querySelectorAll('.panel').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x.dataset.panel===id))}
-document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews()});
+document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews();if(x.dataset.panel==='intelligencePanel')loadIntelligence()});
 $('loginForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
     const f=Object.fromEntries(new FormData(e.target));
     const result=await api('/login','POST',f);
@@ -121,7 +138,40 @@ async function loadMerchant(id){await handle(async()=>{
     });
     const print=document.createElement('button');print.textContent='طباعة الملف PDF';print.className='secondary';print.onclick=()=>window.print();
     analyze.hidden=me.role==='reviewer'||me.role==='viewer';
-    toolbar.append(analyze,print);detail.append(toolbar);
+    
+    const aiMode=document.createElement('select');
+    for(const [key,label] of Object.entries({content:'تحليل المحتوى',audience:'الجمهور',competition:'المنافسون',prospecting:'فرص الخدمات',proposal:'صياغة العرض'})){
+        const opt=document.createElement('option');opt.value=key;opt.textContent=label;aiMode.append(opt);
+    }
+    const aiRun=document.createElement('button');aiRun.className='secondary';aiRun.textContent='تشغيل الوكيل المحلي';
+    aiRun.hidden=me.role==='reviewer'||me.role==='viewer';
+    aiRun.onclick=()=>handle(async()=>{
+        aiRun.disabled=true;
+        try{const result=await api('/merchants/'+id+'/agent-draft','POST',{mode:aiMode.value});
+            await loadMerchant(id);await loadReviews();
+            alertText('حُفظت '+result.recommendation_ids.length+' توصيات معلقة بالمصادر. لا يوجد تواصل تلقائي.');}
+        finally{aiRun.disabled=false}
+    });
+    const draft=document.createElement('button');draft.className='secondary';draft.textContent='مسودة عرض تسويقي';
+    draft.onclick=()=>handle(async()=>{
+        const response=await api('/merchants/'+id+'/proposal');
+        let card=detail.querySelector('#proposalPreview');
+        if(!card){card=document.createElement('section');card.id='proposalPreview';detail.append(card);}
+        card.replaceChildren();paragraph(card,'h3','مسودة العرض للمراجعة البشرية');
+        if(response.status==='not_ready'){paragraph(card,'p','لم تُعتمد توصيات مدعومة بالأدلة بعد.','muted');return}
+        for(const service of response.services){
+            const row=document.createElement('div');row.className='evidence';
+            paragraph(row,'b',service.problem);
+            paragraph(row,'p',service.recommendation);
+            for(const src of service.sources){
+                const link=document.createElement('a');link.href=src.source_url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=src.source_url;row.append(link);
+            }
+            card.append(row);
+        }
+        paragraph(card,'small','هذه مسودة فقط؛ لا رسائل مرسلة، ولا وعود بمبيعات أو عوائد دون قياس مستقل.','muted');
+    });
+    aiMode.hidden=aiRun.hidden;
+    toolbar.append(analyze,aiMode,aiRun,draft,print);detail.append(toolbar);
     const score=result.assessments[0]?.result||null;
     const box=document.createElement('div');box.className='metric-grid';
     for(const [label,v] of [['الأدلة',result.evidence.length],['التقييم',score?.score??'غير متاح'],['التغطية',score?.coverage!=null?score.coverage+'%':'غير متاح']]){
@@ -183,6 +233,13 @@ async function loadReviews(){
         const card=document.createElement('article');
         paragraph(card,'h3',item.problem);paragraph(card,'p',item.action);
         paragraph(card,'small','التاجر: '+item.merchant_id+' — صاحب الإنشاء: '+item.created_by);
+        const sources=item.sources||[];
+        for(const source of sources){
+            const a=document.createElement('a');a.textContent=source.url;
+            a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';card.append(a);
+            paragraph(card,'small','مرصود: '+source.observed_at,'muted');
+        }
+        if(!sources.length)paragraph(card,'p','لا توجد روابط أدلة مرتبطة؛ لا تعتمد التوصية.','muted');
         const notes=document.createElement('textarea');
         notes.placeholder='ملاحظات مراجعة التوصية';notes.required=true;
         notes.value=reviewDrafts.get(String(item.id))||'';
@@ -199,7 +256,60 @@ async function loadReviews(){
             });
             actions.append(b);
         }
+        actions.hidden=!((me.role==='reviewer'||me.role==='admin')&&String(item.created_by)!==String(me.user_id));
+        if(actions.hidden)paragraph(card,'small','يتطلب الاعتماد مراجعاً مستقلاً عن منشئ التوصية.','muted');
         card.append(actions);root.append(card);
     }
 })}
+
+let discoveredCandidates=[];
+$('osmForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
+    const form=Object.fromEntries(new FormData(e.target));
+    const query={lat:Number(form.lat),lon:Number(form.lon),radius_m:Number(form.radius_m),category:form.category};
+    alertText('يجري الاستعلام المحدود من OpenStreetMap...');
+    const response=await api('/discovery/osm','POST',query);
+    discoveredCandidates=response.results.map(x=>({...x,city:form.city}));
+    const root=$('osmResults');root.replaceChildren();
+    paragraph(root,'h3','نتائج قابلة للمراجعة: '+discoveredCandidates.length);
+    for(const [i,result] of discoveredCandidates.entries()){
+        const div=document.createElement('div');div.className='evidence';
+        const check=document.createElement('input');check.type='checkbox';check.className='osm-checkbox';check.value=String(i);
+        const label=document.createElement('label');label.append(check,document.createTextNode(' '+result.name+' — '+result.category));div.append(label);
+        const a=document.createElement('a');a.textContent='عرض سجل المصدر';a.href=result.source_url;a.target='_blank';a.rel='noopener noreferrer';div.append(a);
+        root.append(div);
+    }
+    if(!discoveredCandidates.length){alertText('لم يُعثر على نتائج في النطاق المحدد.');return}
+    const save=document.createElement('button');save.textContent='إدخال المحددين بعد الموافقة';save.className='secondary no-print';
+    save.onclick=()=>handle(async()=>{
+        const selected=[...root.querySelectorAll('.osm-checkbox:checked')].map(x=>discoveredCandidates[Number(x.value)]);
+        if(!selected.length){alertText('حدد نتيجة واحدة على الأقل.',true);return}
+        if(!window.confirm('تأكيد إدخال '+selected.length+' تجار موثقين برابط المصدر؟'))return;
+        const merchants=selected.map(x=>({name:x.name,city:x.city,category:x.category,source_url:x.source_url}));
+        const saved=await api('/discovery/osm/confirm','POST',{confirm:true,merchants});
+        alertText('تم إدخال '+saved.imported+' تجار، وتجاوز '+saved.skipped.length+' مكرر.');
+        root.replaceChildren();await refresh();
+    });
+    root.append(save);
+})};
+$('marketForm').onsubmit=e=>{e.preventDefault();handle(async()=>loadIntelligence(Object.fromEntries(new FormData(e.target))))};
+async function loadIntelligence(filter={}){
+    await handle(async()=>{
+        const query=new URLSearchParams();
+        if(filter.city)query.set('city',filter.city);
+        if(filter.category)query.set('category',filter.category);
+        const market=await api('/market?'+query.toString());
+        const root=$('marketResults');root.replaceChildren();
+        paragraph(root,'p','السجلات المطابقة: '+market.count+' — إجمالي التجار في المؤسسة: '+market.total_registered_in_organization);
+        for(const [k,v] of Object.entries(market.categories))paragraph(root,'p',k+': '+v);
+        const opportunities=await api('/opportunities');
+        const list=$('opportunityResults');list.replaceChildren();
+        if(!opportunities.opportunities.length)paragraph(list,'p','لا توجد فرص مسجلة.','muted');
+        for(const item of opportunities.opportunities){
+            const card=document.createElement('div');card.className='evidence';
+            paragraph(card,'b',item.name+' — '+item.city);
+            paragraph(card,'p','درجة الفرصة: '+(item.opportunity_score===null?'غير متاح (بيانات غير كافية)':item.opportunity_score+'/100'));
+            paragraph(card,'small',(item.reasons||[]).join('، '),'muted');list.append(card);
+        }
+    })
+}
 </script></body></html>

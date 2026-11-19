@@ -170,7 +170,13 @@ def analyze(mid:uuid.UUID,authorization:str|None=Header(None)):
 def pending(authorization:str|None=Header(None)):
     ident=current(authorization)
     with tenant_transaction(data_dsn(),ident) as c:
-        return {"pending":as_dict(c,"SELECT * FROM ms.recommendations WHERE status='pending_review' ORDER BY created_at DESC")}
+        return {"pending":as_dict(c,"""SELECT r.*,COALESCE(
+            (SELECT json_agg(json_build_object('url',e.source_url,'observed_at',e.observed_at))
+             FROM ms.recommendation_evidence re JOIN ms.evidence e
+             ON e.id=re.evidence_id AND e.org_id=re.org_id
+             WHERE re.recommendation_id=r.id AND re.org_id=r.org_id),
+            '[]'::json) AS sources
+            FROM ms.recommendations r WHERE r.status='pending_review' ORDER BY r.created_at DESC""")}
 @app.post("/api/v2/recommendations/{rid}/review")
 def review(rid:uuid.UUID,body:ReviewIn,authorization:str|None=Header(None)):
     ident=current(authorization)
