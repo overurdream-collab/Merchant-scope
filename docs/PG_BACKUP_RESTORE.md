@@ -1,6 +1,6 @@
 # PostgreSQL backup and restore rehearsal
 
-The `postgres-rls.yml` GitHub Actions workflow now tests a **disposable CI-only PostgreSQL 16 backup/restore** using `pg_dump -Fc -n ms` and `pg_restore` into a separate newly created database. It checks row counts for organizations, merchants, candidates, evidence, recommendations and audit events, and ensures row-level security remains enabled on `ms.research_candidates`.
+The `postgres-rls.yml` GitHub Actions workflow now tests a **disposable CI-only PostgreSQL 16 backup/restore** using `pg_dump -Fc -n ms` and `pg_restore` into a separate newly created database. It checks row counts for organizations, merchants, candidates, evidence, recommendations and audit events, and compares every `ms` table's row count and canonical JSONB row-content digest, along with the restored RLS flags and policy definitions. This catches changed rows even when counts match. The digest is an integrity regression check, not a cryptographic proof of a trustworthy backup or a substitute for restore drills.
 
 ## Scope limitations
 - This is an automated CI rehearsal, **not** evidence that a production backup schedule, offsite encryption, immutable retention, PITR/WAL archive, replica failover or disaster recovery configuration exists.
