@@ -43,7 +43,7 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <button>الدخول إلى مرصد التجار</button></form>
 <p class="notice">لا تُحفظ كلمة المرور أو رمز الدخول في التخزين المحلي بالمتصفح. يتطلب تحديث الصفحة تسجيل دخول جديداً.</p></section>
 <div id="workspace" hidden>
-<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="reportPanel">التقارير</button><button data-panel="leadPanel">الفرص البيعية</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
+<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="reportPanel">التقارير</button><button data-panel="leadPanel">الفرص البيعية</button><button data-panel="discoveryPanel">اكتشاف التجار</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
 <div class="panel" id="overviewPanel"><section><p class="subtitle">MERCHANT INTELLIGENCE / v2</p><h1>لوحة الاستخبارات التسويقية</h1><p class="subtitle">كل مؤشر يصف بيانات مؤسستك فقط، ولا يشكل إحصاءً للسوق أو وعداً بمبيعات.</p>
 <div id="overviewMetrics" class="metric-grid"></div></section><div class="grid"><section><h2>حالة العمل</h2><p>أضف تاجراً، وثّق منشوراته وروابط الأدلة، أنشئ تقييماً، ثم أرسل التوصيات إلى مراجع مستقل.</p><p class="notice">لا تؤثر التوصيات غير المعتمدة على قرارات التواصل. لا يجري إرسال رسائل تلقائياً.</p></section><section><h2>حماية البيانات</h2><p>صلاحيات المؤسسات معزولة داخل PostgreSQL باستخدام سياسات RLS. مستخدم المحلل لا يمكنه اعتماد توصيته بنفسه.</p><p class="muted">يتطلب النشر العام تأمين TLS والأسرار ومراقبة الخادم واختبار الاستعادة.</p></section></div></div>
 <div class="panel" id="merchantPanel" hidden>
@@ -67,6 +67,18 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <h2>الفرص البيعية — باعتماد مستقل</h2>
 <p class="muted">درجة الفرصة تعتمد على الأدلة المعروفة، وليست احتمال تحقيق المبيعات. لا يقوم النظام بأي تواصل تلقائي.</p>
 <div id="leadItems"></div></section></div>
+<div class="panel" id="discoveryPanel" hidden><section>
+<h2>اكتشاف التجار من البيانات الجغرافية المفتوحة</h2>
+<p class="muted">بحث محدود عبر OpenStreetMap؛ تُعرض النتائج للمراجعة ولا تُضاف تلقائياً. لا يتضمن هذا البحث بيانات تواصل شخصية.</p>
+<form class="stack no-print" id="osmSearch">
+<div class="grid"><label>خط العرض<input required name="lat" type="number" min="-90" max="90" step="any"></label>
+<label>خط الطول<input required name="lon" type="number" min="-180" max="180" step="any"></label>
+<label>المدينة<input required name="city" placeholder="صنعاء"></label>
+<label>نصف قطر البحث (متر)<input required name="radius_m" type="number" min="100" max="3000" value="1200"></label></div>
+<label>نوع النشاط<select name="category"><option value="shop">متاجر</option><option value="restaurant">مطاعم</option><option value="cafe">مقاهٍ</option><option value="pharmacy">صيدليات</option></select></label>
+<button>بحث موثق</button></form>
+<div id="osmPreview"></div><p class="muted">© OpenStreetMap contributors — ODbL. يجب التحقق من دقة السجلات قبل استخدامها تسويقياً.</p>
+</section></div>
 <div class="panel" id="settingsPanel" hidden><section><h2>المؤسسة والمستخدم</h2><div id="meInfo"></div><p class="notice">هذه الواجهة لا تدعم التسجيل العام؛ إنشاء الحسابات وأدوار المؤسسات يتم عبر المسؤول وأوامر التهيئة.</p></section><section><h2>مصادر البيانات</h2><p>تدعم نسخة PostgreSQL الحالية إدخال الأدلة يدوياً، وتقييماً حسابياً حذراً. موصلات المنصات لا تُفعّل دون مفاتيح وحقوق وصول.</p><p class="muted">التعامل مع بيانات OpenStreetMap أو المحتوى الاجتماعي يتطلب الالتزام بالتراخيص وسياسات المنصات.</p></section></div>
 </div>
 </main><script>
@@ -318,4 +330,32 @@ async function loadLeads(){
   }
  });
 }
+
+let latestOSM=[];
+$('osmSearch').onsubmit=e=>{e.preventDefault();handle(async()=>{
+  const raw=Object.fromEntries(new FormData(e.target));
+  const data={lat:Number(raw.lat),lon:Number(raw.lon),radius_m:Number(raw.radius_m),category:raw.category};
+  const preview=await api('/discovery/osm','POST',data);
+  latestOSM=preview.results.map(x=>({...x,city:raw.city}));
+  const root=$('osmPreview');root.replaceChildren();
+  paragraph(root,'p','نتائج العثور: '+latestOSM.length,'muted');
+  latestOSM.forEach((m,i)=>{
+    const row=document.createElement('div');row.className='evidence';
+    const input=document.createElement('input');input.type='checkbox';input.className='osm-select';input.value=i;
+    const label=document.createElement('label');label.append(input,document.createTextNode(' '+m.name+' — '+m.category));row.append(label);
+    const link=document.createElement('a');link.href=m.source_url;link.textContent='عرض المصدر';link.target='_blank';link.rel='noopener noreferrer';row.append(link);root.append(row);
+  });
+  if(!latestOSM.length)return;
+  const save=document.createElement('button');save.textContent='تأكيد إضافة التجار المحددين';
+  save.onclick=()=>handle(async()=>{
+    const selected=[...root.querySelectorAll('input.osm-select:checked')].map(x=>latestOSM[Number(x.value)]);
+    if(!selected.length){alertText('حدد تاجراً واحداً على الأقل',true);return;}
+    if(!confirm('هل راجعت هويات وروابط المصادر للتجار المحددين؟'))return;
+    const data={confirm:true,merchants:selected.map(x=>({name:x.name,city:x.city,category:x.category,source_url:x.source_url}))};
+    const result=await api('/discovery/osm/commit','POST',data);
+    alertText('تم إدخال '+result.imported+'؛ تم تجاوز '+result.skipped.length+' مكرر.');
+    root.replaceChildren();latestOSM=[];await refresh();
+  });
+  root.append(save);
+})};
 </script></body></html>

@@ -284,3 +284,41 @@ def test_secure_competitor_comparison_is_tenant_isolated(pg,monkeypatch):
         # Merchant from a different organization must never be returned.
         foreign=c.get("/api/v2/compare?ids="+ids[0]+","+str(pg["m1"]),headers=headers)
         assert foreign.status_code==404
+
+def test_secure_osm_import_requires_human_confirmation_and_tenant_permissions(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin,hash_password
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    from app import osm
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    email="osm"+suffix+"@example.org"
+    info=bootstrap_admin(dsn,"OSM "+suffix,email,"strong OSM password 123456")
+    reviewer_id=uuid4()
+    pg["db"].execute("INSERT INTO ms.user_accounts(id,email,password_hash) VALUES(%s,%s,%s)",
+        (reviewer_id,"osmreview"+suffix+"@example.org",hash_password("reviewer password 123456")))
+    pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
+        (info["org_id"],reviewer_id))
+    monkeypatch.setattr(osm,"discover",lambda *a:{"results":[{"name":"شركة البحر","category":"shop","source_url":"https://www.openstreetmap.org/node/321"}],"attribution":osm.ATTRIBUTION})
+    with TestClient(app) as c:
+        def token(email,password):
+            r=c.post("/api/v2/login",json={"email":email,"password":password,"org_id":info["org_id"]})
+            assert r.status_code==200,r.text
+            return {"Authorization":"Bearer "+r.json()["access_token"]}
+        H=token(email,"strong OSM password 123456")
+        R=token("osmreview"+suffix+"@example.org","reviewer password 123456")
+        found=c.post("/api/v2/discovery/osm",headers=H,json={"lat":15.3,"lon":44.2,"radius_m":1200,"category":"shop"})
+        assert found.status_code==200,found.text
+        assert len(found.json()["results"])==1
+        body={"confirm":True,"merchants":[{"name":"شركة البحر","city":"صنعاء","category":"متجر","source_url":"https://www.openstreetmap.org/node/321"}]}
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json={**body,"confirm":False}).status_code==422
+        assert c.post("/api/v2/discovery/osm/commit",headers=R,json=body).status_code==403
+        approved=c.post("/api/v2/discovery/osm/commit",headers=H,json=body)
+        assert approved.status_code==200,approved.text
+        assert approved.json()["imported"]==1
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json=body).json()["imported"]==0
+        bad={**body,"merchants":[{**body["merchants"][0],"source_url":"https://evil.example/node/9"}]}
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json=bad).status_code==422

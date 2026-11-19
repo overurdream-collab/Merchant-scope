@@ -14,6 +14,7 @@ from psycopg.rows import dict_row
 from psycopg import IntegrityError, Error
 from .pg_identity import login, resolve_session, revoke_session, tenant_transaction
 from .scoring import assess, recommend
+from . import osm
 
 app=FastAPI(title="MerchantScope Secure API v2",version="0.2.0")
 def auth_dsn():return os.environ.get("MERCHANTSCOPE_AUTH_DSN","")
@@ -331,3 +332,53 @@ def secure_compare(ids:str,authorization:str|None=Header(None)):
                             "score":assessment.get("score") if isinstance(assessment,dict) else None,
                             "coverage":assessment.get("coverage") if isinstance(assessment,dict) else None})
         return {"results":results,"caveat":"Comparison of recorded evidence, not objective market share or competitor revenue."}
+
+class SecureOSMSearch(BaseModel):
+    lat:float=Field(ge=-90,le=90)
+    lon:float=Field(ge=-180,le=180)
+    radius_m:int=Field(default=1200,ge=100,le=3000)
+    category:Literal["shop","restaurant","cafe","pharmacy"]="shop"
+
+class SecureOSMChoice(BaseModel):
+    name:str=Field(min_length=2,max_length=200)
+    city:str=Field(min_length=1,max_length=100)
+    category:str|None=None
+    source_url:str
+
+class SecureOSMImport(BaseModel):
+    confirm:bool=False
+    merchants:list[SecureOSMChoice]=Field(min_length=1,max_length=50)
+
+@app.post("/api/v2/discovery/osm")
+def secure_osm_preview(body:SecureOSMSearch,authorization:str|None=Header(None)):
+    current(authorization)
+    return osm.discover(body.lat,body.lon,body.radius_m,body.category)
+
+@app.post("/api/v2/discovery/osm/commit")
+def secure_osm_import(body:SecureOSMImport,authorization:str|None=Header(None)):
+    ident=current(authorization)
+    if not body.confirm:raise HTTPException(422,"Manual confirmation required")
+    from re import fullmatch
+    for item in body.merchants:
+        if not fullmatch(r"https://www\.openstreetmap\.org/(node|way|relation)/[1-9][0-9]*",item.source_url):
+            raise HTTPException(422,"Invalid OSM source URL")
+    try:
+        with tenant_transaction(data_dsn(),ident) as c:
+            imported=[];skipped=[]
+            for item in body.merchants:
+                duplicate=one(c,"SELECT id FROM ms.merchants WHERE normalized_name=%s AND city=%s",(norm(item.name),item.city))
+                previous=one(c,"SELECT merchant_id FROM ms.channels WHERE url=%s",(item.source_url,))
+                if duplicate or previous:
+                    skipped.append({"name":item.name,"reason":"Duplicate name/city or source URL"})
+                    continue
+                m=one(c,"""INSERT INTO ms.merchants(org_id,name,normalized_name,city,category,created_by)
+                         VALUES(%s,%s,%s,%s,%s,%s) RETURNING id""",
+                      (ident["org_id"],item.name,norm(item.name),item.city,item.category,ident["user_id"]))
+                c.execute("INSERT INTO ms.channels(org_id,merchant_id,platform,url) VALUES(%s,%s,%s,%s)",
+                          (ident["org_id"],m["id"],"openstreetmap",item.source_url))
+                imported.append(str(m["id"]))
+            return {"imported":len(imported),"merchant_ids":imported,"skipped":skipped,
+                    "attribution":osm.ATTRIBUTION,
+                    "caveat":"OSM coverage may be incomplete; business identity not independently verified."}
+    except Error as exc:
+        raise HTTPException(403,"Import denied by tenant policy or duplicate constraints") from exc
