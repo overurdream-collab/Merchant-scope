@@ -472,3 +472,42 @@ def test_research_source_validation_and_cross_tenant_access(pg,monkeypatch):
         assert client.post(f"/api/v2/research/candidates/{cid}/review",headers=tokens[1],json={
             "decision":"reviewed","notes":"This candidate belongs to another organization"}).status_code==404
         assert client.post(f"/api/v2/research/candidates/{cid}/promote?confirm=true",headers=tokens[1]).status_code==404
+
+def test_full_30_sanaa_source_manifest_stages_without_merchant_or_contact_effect(pg,monkeypatch):
+    import json
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    source=json.loads((Path(__file__).parents[1]/"research"/"sanaa_30_candidates_2026-11-19.json").read_text(encoding="utf-8"))
+    assert len(source["records"])==30
+    suffix=uuid4().hex[:8]
+    email="sanaa-pilot-"+suffix+"@example.org"
+    org=bootstrap_admin(dsn,"Sanaa Pilot "+suffix,email,"Sanaa staging password 123456")
+    with TestClient(app) as client:
+        login=client.post("/api/v2/login",json={
+           "email":email,"password":"Sanaa staging password 123456","org_id":org["org_id"]})
+        assert login.status_code==200,login.text
+        headers={"Authorization":"Bearer "+login.json()["access_token"]}
+        records=[{"name":item["name"],"city":item["city"],"category":item["category"],
+                  "source_url":item["source_url"],"source_kind":item["source_kind"],
+                  "observed_on":source["collected_on"]} for item in source["records"]]
+        result=client.post("/api/v2/research/candidates/import",headers=headers,
+                           json={"confirm":True,"records":records})
+        assert result.status_code==200,result.text
+        assert result.json()["inserted"]==30
+        assert result.json()["status"]=="unverified"
+        staged=client.get("/api/v2/research/candidates?status=unverified",headers=headers)
+        assert staged.status_code==200
+        assert staged.json()["count"]==30
+        assert all(x["status"]=="unverified" and x["promoted_merchant_id"] is None
+                   for x in staged.json()["candidates"])
+        assert client.get("/api/v2/merchants",headers=headers).json()["merchants"]==[]
+        assert client.get("/api/v2/opportunities",headers=headers).json()["opportunities"]==[]
+        again=client.post("/api/v2/research/candidates/import",headers=headers,
+                          json={"confirm":True,"records":records})
+        assert again.status_code==200 and again.json()["inserted"]==0
+        assert len(again.json()["duplicates"])==30
