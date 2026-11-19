@@ -132,6 +132,12 @@ jobs:
             test "$exposed" = "f" || { echo "SECURITY FAILURE: public authentication function EXECUTE in $database"; exit 1; }
             granted="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "SELECT has_function_privilege('merchant_auth', 'ms.login_account(text,uuid)', 'EXECUTE') AND has_function_privilege('merchant_auth', 'ms.lookup_session(bytea)', 'EXECUTE')")"
             test "$granted" = "t" || { echo "SECURITY FAILURE: merchant_auth grants missing in $database"; exit 1; }
+            # The application runtime must not inherit privileged authentication routines.
+            # Check effective privileges (including role inheritance), not only explicit ACL rows.
+            runtime_denied="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "SELECT NOT has_function_privilege('merchant_runtime', 'ms.login_account(text,uuid)', 'EXECUTE') AND NOT has_function_privilege('merchant_runtime', 'ms.lookup_session(bytea)', 'EXECUTE')")"
+            test "$runtime_denied" = "t" || { echo "SECURITY FAILURE: merchant_runtime can execute auth functions in $database"; exit 1; }
+            public_denied="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "SELECT NOT has_function_privilege('public', 'ms.login_account(text,uuid)', 'EXECUTE') AND NOT has_function_privilege('public', 'ms.lookup_session(bytea)', 'EXECUTE')")"
+            test "$public_denied" = "t" || { echo "SECURITY FAILURE: PUBLIC can execute auth functions in $database"; exit 1; }
           done
           security="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass")"
           test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
