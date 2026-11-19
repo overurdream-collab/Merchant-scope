@@ -2,6 +2,7 @@
 Uses only an ephemeral PostgreSQL CI test database and synthetic merchants.
 """
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -61,6 +62,23 @@ def main():
                 expect(page.locator("#workspace")).to_be_visible(timeout=15000)
             login(admin_email,admin_password)
             expect(page.locator("#identity")).to_contain_text("admin")
+            # Candidate import is explicitly staged and never grants outreach permission.
+            page.locator('button[data-panel="researchPanel"]').click()
+            sample={
+              "collected_on":datetime.now(timezone.utc).date().isoformat(),
+              "records":[{"name":"تاجر تجريبي لفحص الباحث","city":"صنعاء",
+                          "category":"هدايا","source_url":"https://happynew.day/vendor/synthetic-browser-candidate"}]
+            }
+            page.locator("#candidateFile").set_input_files({
+                "name":"synthetic.json","mimeType":"application/json",
+                "buffer":json.dumps(sample,ensure_ascii=False).encode("utf-8")
+            })
+            expect(page.locator("#candidatePreview")).to_contain_text("تاجر تجريبي لفحص الباحث")
+            page.locator("#candidatePreview .research-include").check()
+            page.once("dialog",lambda dialog:dialog.accept())
+            page.locator("#candidatePreview button").click()
+            expect(page.locator("#alerts")).to_contain_text("أُدخل 1",timeout=15000)
+            expect(page.locator("#candidateList")).to_contain_text("تاجر تجريبي لفحص الباحث")
             page.locator('button[data-panel="merchantPanel"]').click()
             page.locator('#createBox summary').click()
             page.locator('#createForm input[name="name"]').fill("تاجر اختبار المتصفح")
@@ -97,6 +115,25 @@ def main():
             page.locator("#reviews article button").first.click()
             expect(page.locator("#alerts")).to_contain_text("تم تسجيل",timeout=15000)
             page.screenshot(path=str(shots/"secure-reviewer.png"),full_page=True)
+            page.locator('button[data-panel="researchPanel"]').click()
+            expect(page.locator("#candidateList")).to_contain_text("تاجر تجريبي لفحص الباحث",timeout=15000)
+            note=page.locator('#candidateList article textarea').first
+            note.fill("صفحة الدليل متاحة، والمصدر يحتاج مراجعة نشاط إضافية")
+            page.locator('#candidateList article button').first.click()
+            expect(page.locator("#alerts")).to_contain_text("تم حفظ قرار المراجعة",timeout=15000)
+            expect(page.locator("#candidateList")).to_contain_text("reviewed",timeout=15000)
+            page.screenshot(path=str(shots/"secure-candidate-review.png"),full_page=True)
+            page.locator("#logout").click()
+            expect(page.locator("#loginForm")).to_be_visible()
+            login(admin_email,admin_password)
+            page.locator('button[data-panel="researchPanel"]').click()
+            expect(page.locator("#candidateList")).to_contain_text("تاجر تجريبي لفحص الباحث",timeout=15000)
+            page.once("dialog",lambda dialog:dialog.accept())
+            page.locator('#candidateList button').filter(has_text="نقل إلى سجل التجار").first.click()
+            expect(page.locator("#alerts")).to_contain_text("أُضيف ملف التاجر",timeout=15000)
+            page.locator('button[data-panel="merchantPanel"]').click()
+            expect(page.locator("#merchantList")).to_contain_text("تاجر تجريبي لفحص الباحث")
+            page.screenshot(path=str(shots/"secure-candidate-promoted.png"),full_page=True)
             browser.close()
         print("PASS: secure PostgreSQL auth, merchant+evidence, analysis and independent human review")
     finally:
