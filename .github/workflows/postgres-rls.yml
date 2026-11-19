@@ -47,7 +47,7 @@ jobs:
           docker exec "$service" pg_dump -U postgres -d merchantscope_test -n ms -Fc > "$RUNNER_TEMP/merchantscope-ci.dump"
           test -s "$RUNNER_TEMP/merchantscope-ci.dump"
           docker exec "$service" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE merchantscope_restore'
-          docker exec -i "$service" pg_restore --exit-on-error --no-owner --no-acl -U postgres -d merchantscope_restore < "$RUNNER_TEMP/merchantscope-ci.dump"
+          docker exec -i "$service" pg_restore --exit-on-error --no-owner -U postgres -d merchantscope_restore < "$RUNNER_TEMP/merchantscope-ci.dump"
           for table in organizations merchants research_candidates evidence recommendations audit_events; do
             before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "SELECT count(*) FROM ms.$table")"
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT count(*) FROM ms.$table")"
@@ -97,6 +97,15 @@ jobs:
           before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$function_query")"
           after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$function_query")"
           test "$before" = "$after" || { echo "Restored SQL function definitions or security flags differ"; exit 1; }
+          # SECURITY DEFINER authentication functions must never regain PUBLIC EXECUTE.
+          # --no-acl on restore would silently restore PostgreSQL's default PUBLIC EXECUTE.
+          privilege_query="SELECT has_function_privilege('public', 'ms.login_account(text,uuid)', 'EXECUTE') OR has_function_privilege('public', 'ms.lookup_session(bytea)', 'EXECUTE')"
+          for database in merchantscope_test merchantscope_restore; do
+            exposed="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$privilege_query")"
+            test "$exposed" = "f" || { echo "SECURITY FAILURE: public authentication function EXECUTE in $database"; exit 1; }
+            granted="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "SELECT has_function_privilege('merchant_auth', 'ms.login_account(text,uuid)', 'EXECUTE') AND has_function_privilege('merchant_auth', 'ms.lookup_session(bytea)', 'EXECUTE')")"
+            test "$granted" = "t" || { echo "SECURITY FAILURE: merchant_auth grants missing in $database"; exit 1; }
+          done
           security="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass")"
           test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
           echo "SUCCESS: disposable tables, rows, column defaults, constraints, indexes, triggers, RLS flags and policies restored."
