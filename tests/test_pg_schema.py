@@ -359,14 +359,14 @@ def test_secure_osm_and_agent_pipeline(pg,monkeypatch):
         preview=c.post("/api/v2/discovery/osm",headers=H,json={"lat":15.3,"lon":44.2,"category":"shop"})
         assert preview.status_code==200 and preview.json()["results"][0]["source_url"]==source
         body={"confirm":True,"merchants":[{"name":"متجر نموذجي","city":"صنعاء","category":"supermarket","source_url":source}]}
-        assert c.post("/api/v2/discovery/osm/confirm",headers=H,json={**body,"confirm":False}).status_code==422
-        added=c.post("/api/v2/discovery/osm/confirm",headers=H,json=body)
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json={**body,"confirm":False}).status_code==422
+        added=c.post("/api/v2/discovery/osm/commit",headers=H,json=body)
         assert added.status_code==200,added.text
         assert added.json()["imported"]==1 and "OpenStreetMap" in added.json()["attribution"]
-        mid=added.json()["ids"][0]
-        assert c.post("/api/v2/discovery/osm/confirm",headers=H,json=body).json()["imported"]==0
-        assert c.post("/api/v2/discovery/osm/confirm",headers=R,json=body).status_code==403
-        assert c.get("/api/v2/market",headers=H).json()["count"]==1
+        mid=added.json()["merchant_ids"][0]
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json=body).json()["imported"]==0
+        assert c.post("/api/v2/discovery/osm/commit",headers=R,json=body).status_code==403
+        assert c.get("/api/v2/reports/portfolio",headers=H).json()["merchant_count"]==1
         assert c.get("/api/v2/opportunities",headers=H).json()["opportunities"][0]["opportunity_score"] is None
         at=datetime.now(timezone.utc).isoformat()
         recorded=c.post(f"/api/v2/merchants/{mid}/evidence",headers=H,json={"platform":"website","source_url":"https://example.org/product","observed_at":at,"text":"عرض منتج بدون وصف مفصل"})
@@ -389,8 +389,8 @@ def test_secure_osm_and_agent_pipeline(pg,monkeypatch):
         proposal=c.get(f"/api/v2/merchants/{mid}/proposal",headers=H)
         assert proposal.status_code==200
         assert proposal.json()["status"]=="draft_for_human_review"
-        assert proposal.json()["services"][0]["sources"][0]["source_url"]=="https://example.org/product"
-        assert proposal.json()["outreach_sent"] is False
+        assert proposal.json()["services"][0]["sources"][0]["url"]=="https://example.org/product"
+        assert "No messages" in proposal.json()["disclaimer"]
 
 def test_secure_agent_rejects_nonexistent_evidence_ids(pg,monkeypatch):
     from fastapi.testclient import TestClient
