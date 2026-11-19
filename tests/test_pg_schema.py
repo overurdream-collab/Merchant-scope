@@ -322,3 +322,23 @@ def test_secure_osm_import_requires_human_confirmation_and_tenant_permissions(pg
         assert c.post("/api/v2/discovery/osm/commit",headers=H,json=body).json()["imported"]==0
         bad={**body,"merchants":[{**body["merchants"][0],"source_url":"https://evil.example/node/9"}]}
         assert c.post("/api/v2/discovery/osm/commit",headers=H,json=bad).status_code==422
+
+
+def test_secure_source_url_rejects_private_targets_and_control_characters():
+    """URL metadata must not accept internal hosts or header/control injection."""
+    from fastapi import HTTPException
+    from app.pg_api import valid_url
+    for candidate in (
+        "http://127.0.0.1/admin",
+        "http://10.0.0.1/private",
+        "http://[::1]/",
+        "http://localhost:8000/",
+        "https://service.internal/path",
+        "https://example.org/path\\r\\nInjected: yes",
+        "https://example.org/" + "x" * 2100,
+        "https://example.org/path#fragment",
+    ):
+        with pytest.raises(HTTPException) as exc:
+            valid_url(candidate)
+        assert exc.value.status_code == 422
+    assert valid_url("https://www.openstreetmap.org/node/321") == "https://www.openstreetmap.org/node/321"
