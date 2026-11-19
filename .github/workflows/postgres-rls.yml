@@ -65,6 +65,14 @@ jobs:
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT count(*) FROM ms.$table")"
             test "$before" = "$after" || { echo "Restore mismatch: $table"; exit 1; }
           done
+          # Counts alone cannot detect corruption when a row is changed but not removed.
+          # Compare canonical JSONB row digests across every restored table.
+          for table in ${source_tables//,/ }; do
+            digest_sql="SELECT md5(coalesce(string_agg(to_jsonb(t)::text, '|' ORDER BY to_jsonb(t)::text), '')) FROM ms.$table AS t"
+            before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$digest_sql")"
+            after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$digest_sql")"
+            test "$before" = "$after" || { echo "Restore row-content mismatch: $table"; exit 1; }
+          done
           rls_query="SELECT string_agg(format('%s:%s:%s', c.relname, c.relrowsecurity, c.relforcerowsecurity), ',' ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p')"
           policy_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s:%s', tablename, policyname, permissive, roles::text, cmd, coalesce(qual,''), coalesce(with_check,'')), E'\\n' ORDER BY tablename, policyname), '') FROM pg_policies WHERE schemaname='ms'"
           for query in "$rls_query" "$policy_query"; do
