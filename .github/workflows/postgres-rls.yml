@@ -119,7 +119,7 @@ jobs:
           for query in "$schema_acl_query" "$relation_acl_query" "$routine_acl_query"; do
             before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$query")"
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
-            test "$before" = "$after" || { echo "SECURITY FAILURE: restored schema/object ACL mismatch"; exit 1; }
+            test "$before" = "$after" || { echo "SECURITY FAILURE: restored schema/object ACL mismatch"; echo "ACL query: $query"; printf "SOURCE ACL:\n%s\nRESTORED ACL:\n%s\n" "$before" "$after"; exit 1; }
           done
           # SECURITY DEFINER authentication functions must never regain PUBLIC EXECUTE.
           # --no-acl on restore would silently restore PostgreSQL's default PUBLIC EXECUTE.
