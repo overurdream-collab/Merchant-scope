@@ -36,6 +36,8 @@ services:
       MERCHANTSCOPE_AUTH_DSN: postgresql://ms_auth_api:${MS_AUTH_PASSWORD:?}@db:5432/merchantscope
       MERCHANTSCOPE_DATA_DSN: postgresql://ms_data_api:${MS_DATA_PASSWORD:?}@db:5432/merchantscope
       MERCHANTSCOPE_LOCAL_CONTAINER_MODE: "1"
+      MERCHANTSCOPE_OLLAMA_MODEL: ${MERCHANTSCOPE_OLLAMA_MODEL:-}
+      MERCHANTSCOPE_OLLAMA_BASE_URL: http://ollama:11434
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -48,6 +50,17 @@ services:
       interval: 20s
       timeout: 5s
       retries: 8
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - merchant_ollama_models:/root/.ollama
+    # No host port exposure; only the app's isolated internal Docker network can reach it.
+    security_opt:
+      - no-new-privileges:true
   bootstrap:
     profiles: ["setup"]
     build:
@@ -67,3 +80,4 @@ services:
       - ALL
 volumes:
   merchant_pg_data:
+  merchant_ollama_models:

@@ -1,7 +1,7 @@
 """Local-only AI marketing draft engine. Inputs are untrusted evidence, outputs stay pending human review."""
 import json
 import os
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 from urllib.error import URLError
 from fastapi import HTTPException
 
@@ -48,11 +48,18 @@ def run_model(mode, merchant, evidence):
             f"Evidence: {json.dumps(sources,ensure_ascii=False)}"
         )
     }
-    req=Request("http://127.0.0.1:11434/api/generate",
+    model_base=os.environ.get("MERCHANTSCOPE_OLLAMA_BASE_URL","http://127.0.0.1:11434").strip().rstrip("/")
+    if model_base not in ("http://127.0.0.1:11434","http://ollama:11434"):
+        raise HTTPException(503,"Only explicitly approved local Ollama endpoints are allowed")
+    req=Request(model_base+"/api/generate",
         data=json.dumps(payload,ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type":"application/json"},method="POST")
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self,*args,**kwargs):
+            return None
+    opener=build_opener(ProxyHandler({}),NoRedirect())
     try:
-        with urlopen(req,timeout=45) as response:
+        with opener.open(req,timeout=45) as response:
             raw=response.read(250_000)
     except (URLError, TimeoutError, OSError) as exc:
         raise HTTPException(503,"Local AI model is unavailable") from exc

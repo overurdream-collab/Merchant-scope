@@ -45,3 +45,18 @@ Live authorization API connectors, tested model inference, monitored ingestion w
 ## CI acceptance
 
 `.github/workflows/secure-compose.yml` boots this stack using synthetic disposable credentials, verifies the sign-in screen and refusal of unauthenticated API access, bootstraps a disposable user, and checks authenticated API calls. This is an automated smoke test, not authorization for open internet release.
+
+## Optional no-subscription Ollama marketing model
+
+The AI worker is **opt-in** and does not start unless you enable the `ai` Docker Compose profile. It is reachable only inside the Docker network, without a host port. The application allows only `http://ollama:11434` in Docker and `http://127.0.0.1:11434` for a directly hosted local pilot. Remote arbitrary model URLs and HTTP redirects are blocked.
+
+```powershell
+docker compose --env-file .env.secure -f compose.secure.yml --profile ai up -d ollama
+docker compose --env-file .env.secure -f compose.secure.yml --profile ai exec ollama ollama pull qwen2.5:7b
+Add-Content .env.secure "MERCHANTSCOPE_OLLAMA_MODEL=qwen2.5:7b"
+docker compose --env-file .env.secure -f compose.secure.yml up -d web
+```
+
+The model download uses internet bandwidth and local disk/RAM but no paid cloud API. A 7B quantized model may require several GB of storage and memory; larger models can be much heavier. The suggested example model is not a claim of perfect accuracy. It has **not** been downloaded or evaluated in CI. A quality benchmark on Arabic/Yemeni marketing examples remains mandatory. Every generated recommendation must cite an existing evidence record and remains pending independent review. Stop the AI service with `docker compose --env-file .env.secure -f compose.secure.yml --profile ai stop ollama`; stopping it does not delete the downloaded model volume.
+
+Do not copy Boring Marketing Skills executable scripts into production without a source/version/security review. The integrated workflow uses curated, constrained task mappings only. The optional `ollama/ollama:latest` image should be replaced with a reviewed digest-pinned image before any production deployment.
