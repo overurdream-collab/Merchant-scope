@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg import IntegrityError, Error
 from .pg_identity import login, resolve_session, revoke_session, tenant_transaction
 from .scoring import assess, recommend
-from . import osm
+from . import osm, agent
 
 app=FastAPI(title="MerchantScope Secure API v2",version="0.2.0")
 def auth_dsn():return os.environ.get("MERCHANTSCOPE_AUTH_DSN","")
@@ -46,7 +46,7 @@ def must_merchant(conn,id:str):
     return record
 @app.middleware("http")
 async def headers(req:Request,call_next):
-    if req.url.scheme != "https" and (req.client is not None and req.client.host not in ("127.0.0.1","::1","localhost","testclient")):
+    if req.url.scheme != "https" and os.environ.get("MERCHANTSCOPE_LOCAL_CONTAINER_MODE") != "1" and (req.client is not None and req.client.host not in ("127.0.0.1","::1","localhost","testclient")):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error":"HTTPS required"},status_code=400)
     response=await call_next(req)
@@ -168,7 +168,12 @@ def analyze(mid:uuid.UUID,authorization:str|None=Header(None)):
 def pending(authorization:str|None=Header(None)):
     ident=current(authorization)
     with tenant_transaction(data_dsn(),ident) as c:
-        return {"pending":as_dict(c,"SELECT * FROM ms.recommendations WHERE status='pending_review' ORDER BY created_at DESC")}
+        return {"pending":as_dict(c,"""SELECT r.*,COALESCE(
+            (SELECT json_agg(json_build_object('url',e.source_url,'observed_at',e.observed_at,'published_at',e.published_at))
+             FROM ms.recommendation_evidence re JOIN ms.evidence e
+             ON e.id=re.evidence_id AND e.org_id=re.org_id
+             WHERE re.recommendation_id=r.id AND re.org_id=r.org_id),'[]'::json) AS sources
+             FROM ms.recommendations r WHERE r.status='pending_review' ORDER BY r.created_at DESC""")}
 @app.post("/api/v2/recommendations/{rid}/review")
 def review(rid:uuid.UUID,body:ReviewIn,authorization:str|None=Header(None)):
     ident=current(authorization)
@@ -382,3 +387,57 @@ def secure_osm_import(body:SecureOSMImport,authorization:str|None=Header(None)):
                     "caveat":"OSM coverage may be incomplete; business identity not independently verified."}
     except Error as exc:
         raise HTTPException(403,"Import denied by tenant policy or duplicate constraints") from exc
+
+
+class AgentDraftIn(BaseModel):
+    mode: Literal["content","audience","competition","prospecting","proposal"]
+
+def must_write(ident):
+    if ident.get("role") not in ("admin","analyst"):
+        raise HTTPException(403,"Analyst permission required")
+
+@app.post("/api/v2/merchants/{mid}/agent-draft")
+def secure_agent_draft(mid:uuid.UUID,data:AgentDraftIn,authorization:str|None=Header(None)):
+    identity=current(authorization);must_write(identity)
+    with tenant_transaction(data_dsn(),identity) as c:
+        merchant_record=must_merchant(c,str(mid))
+        source_rows=as_dict(c,"SELECT id,platform,source_url,observed_at,published_at,body,likes,comments,views FROM ms.evidence WHERE merchant_id=%s ORDER BY observed_at DESC LIMIT 20",(mid,))
+    if not source_rows:
+        raise HTTPException(422,"At least one recorded source is required")
+    evidence=[
+        {"id":str(e["id"]),"platform":e["platform"],"source_url":e["source_url"],
+        "observed_at":e["observed_at"].isoformat(),
+        "published_at":e["published_at"].isoformat() if e["published_at"] else None,
+        "text":e["body"],"likes":e["likes"],"comments":e["comments"],"views":e["views"]}
+        for e in source_rows]
+    output=agent.run_model(data.mode,merchant_record,evidence)
+    reviewed=agent.validate_draft(output,evidence)
+    if not reviewed["recommendations"]:
+        raise HTTPException(422,"No recommendations with valid source IDs and safe factual content")
+    created=[];duplicate=[]
+    try:
+        with tenant_transaction(data_dsn(),identity) as c:
+            must_merchant(c,str(mid))
+            c.execute("SELECT pg_advisory_xact_lock(hashtext(%s))",(str(mid)+":agent-draft",))
+            for item in reviewed["recommendations"]:
+                source_ids=[uuid.UUID(x) for x in item["evidence_ids"]]
+                rows=as_dict(c,"SELECT id FROM ms.evidence WHERE merchant_id=%s AND id=ANY(%s::uuid[])",(mid,source_ids))
+                if len(rows)!=len(source_ids):
+                    raise HTTPException(409,"Source evidence changed; rerun analysis")
+                already=one(c,"SELECT id FROM ms.recommendations WHERE merchant_id=%s AND problem=%s AND action=%s AND status='pending_review'",
+                    (mid,item["problem"],item["action"]))
+                if already:
+                    duplicate.append(already["id"]);continue
+                r=one(c,"""INSERT INTO ms.recommendations(org_id,merchant_id,problem,action,rationale,created_by)
+                      VALUES(%s,%s,%s,%s,%s,%s) RETURNING id""",
+                      (identity["org_id"],mid,item["problem"],item["action"],item["rationale"],identity["user_id"]))
+                for eid in source_ids:
+                    c.execute("INSERT INTO ms.recommendation_evidence(org_id,recommendation_id,evidence_id) VALUES(%s,%s,%s)",
+                        (identity["org_id"],r["id"],eid))
+                created.append(r["id"])
+    except Error as ex:
+        raise HTTPException(403,"Database policy denied AI draft creation") from ex
+    return {"status":"pending_review","mode":data.mode,"summary":reviewed["summary"],
+            "recommendation_ids":created,"existing_pending_ids":duplicate,
+            "note":"AI-generated draft only. Reviewer must independently verify all claims and sources before approving."}
+

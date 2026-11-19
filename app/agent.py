@@ -2,7 +2,7 @@
 import json
 import os
 import re
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 from urllib.error import URLError
 from fastapi import HTTPException
 
@@ -49,11 +49,18 @@ def run_model(mode, merchant, evidence):
             f"Evidence: {json.dumps(sources,ensure_ascii=False)}"
         )
     }
-    req=Request("http://127.0.0.1:11434/api/generate",
+    model_base=os.environ.get("MERCHANTSCOPE_OLLAMA_BASE_URL","http://127.0.0.1:11434").strip().rstrip("/")
+    if model_base not in ("http://127.0.0.1:11434","http://ollama:11434"):
+        raise HTTPException(503,"Only approved local Ollama endpoints are permitted")
+    req=Request(model_base+"/api/generate",
         data=json.dumps(payload,ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type":"application/json"},method="POST")
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self,*args,**kwargs):
+            return None
+    opener=build_opener(ProxyHandler({}),NoRedirect())
     try:
-        with urlopen(req,timeout=45) as response:
+        with opener.open(req,timeout=45) as response:
             raw=response.read(250_000)
     except (URLError, TimeoutError, OSError) as exc:
         raise HTTPException(503,"Local AI model is unavailable") from exc
@@ -64,7 +71,7 @@ def run_model(mode, merchant, evidence):
     return output
 
 PERCENT_RE=re.compile(r"[0-9٠-٩]+(?:[.,٫][0-9٠-٩]+)?\s*[%٪]")
-GUARANTEE_RE=re.compile(r"(?i)\b(?:guarantee|guaranteed|certainly)\b|مضمونة|مضمون|نضمن|سيحقق|سنحقق")
+GUARANTEE_RE=re.compile(r"(?i)\b(?:guarantee|guaranteed|certainly)\b|مضمونة|مضمون|نضمن|سيحقق|سنحقق|ستزيد|سيزيد|سيرتفع|سترتفع")
 
 def requires_fact_check(text, sources):
     """Reject quantitative and guaranteed outcomes unsupported even by supplied evidence.
@@ -89,7 +96,7 @@ def validate_draft(output, evidence):
         if not isinstance(item,dict):continue
         ids=item.get("evidence_ids",[])
         if not isinstance(ids,list):continue
-        ids=[i for i in ids if type(i) is int and i in allowed]
+        ids=[i for i in ids if type(i) in (int,str) and i in allowed]
         if not ids:continue
         problem=item.get("problem","")
         action=item.get("action","")

@@ -322,3 +322,96 @@ def test_secure_osm_import_requires_human_confirmation_and_tenant_permissions(pg
         assert c.post("/api/v2/discovery/osm/commit",headers=H,json=body).json()["imported"]==0
         bad={**body,"merchants":[{**body["merchants"][0],"source_url":"https://evil.example/node/9"}]}
         assert c.post("/api/v2/discovery/osm/commit",headers=H,json=bad).status_code==422
+
+
+# Secure local AI integration, source integrity and independent reviewer tests
+def test_secure_osm_and_agent_pipeline(pg,monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.pg_api import app
+    from app import osm,agent
+    from app.pg_identity import bootstrap_admin,hash_password
+    from datetime import datetime,timezone
+    from uuid import uuid4
+    import os
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    admin_email=f"collector{suffix}@example.org"
+    ids=bootstrap_admin(dsn,"Collector "+suffix,admin_email,"very long unique password 12345")
+    reviewer_id=uuid4()
+    pg["db"].execute("INSERT INTO ms.user_accounts(id,email,password_hash) VALUES(%s,%s,%s)",
+       (reviewer_id,f"review{suffix}@example.org",hash_password("review different password 12345")))
+    pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
+       (ids["org_id"],reviewer_id))
+    with TestClient(app) as c:
+        admin_login=c.post("/api/v2/login",json={"email":admin_email,"password":"very long unique password 12345","org_id":ids["org_id"]})
+        assert admin_login.status_code==200,admin_login.text
+        H={"Authorization":"Bearer "+admin_login.json()["access_token"]}
+        reviewer_login=c.post("/api/v2/login",json={"email":f"review{suffix}@example.org","password":"review different password 12345","org_id":ids["org_id"]})
+        assert reviewer_login.status_code==200,reviewer_login.text
+        R={"Authorization":"Bearer "+reviewer_login.json()["access_token"]}
+        assert c.post("/api/v2/discovery/osm",json={"lat":15.3,"lon":44.2}).status_code==401
+        source="https://www.openstreetmap.org/node/100123"
+        sample={"results":[{"name":"متجر نموذجي","category":"supermarket","source_url":source}],
+                "attribution":osm.ATTRIBUTION}
+        monkeypatch.setattr(osm,"discover",lambda *args:sample)
+        preview=c.post("/api/v2/discovery/osm",headers=H,json={"lat":15.3,"lon":44.2,"category":"shop"})
+        assert preview.status_code==200 and preview.json()["results"][0]["source_url"]==source
+        body={"confirm":True,"merchants":[{"name":"متجر نموذجي","city":"صنعاء","category":"supermarket","source_url":source}]}
+        assert c.post("/api/v2/discovery/osm/confirm",headers=H,json={**body,"confirm":False}).status_code==422
+        added=c.post("/api/v2/discovery/osm/confirm",headers=H,json=body)
+        assert added.status_code==200,added.text
+        assert added.json()["imported"]==1 and "OpenStreetMap" in added.json()["attribution"]
+        mid=added.json()["ids"][0]
+        assert c.post("/api/v2/discovery/osm/confirm",headers=H,json=body).json()["imported"]==0
+        assert c.post("/api/v2/discovery/osm/confirm",headers=R,json=body).status_code==403
+        assert c.get("/api/v2/market",headers=H).json()["count"]==1
+        assert c.get("/api/v2/opportunities",headers=H).json()["opportunities"][0]["opportunity_score"] is None
+        at=datetime.now(timezone.utc).isoformat()
+        recorded=c.post(f"/api/v2/merchants/{mid}/evidence",headers=H,json={"platform":"website","source_url":"https://example.org/product","observed_at":at,"text":"عرض منتج بدون وصف مفصل"})
+        assert recorded.status_code==201,recorded.text
+        evidence_id=recorded.json()["id"]
+        monkeypatch.setattr(agent,"run_model",lambda mode,merchant,rows:{
+            "summary":"ملخص للمراجعة",
+            "recommendations":[{"problem":"غياب بعض تفاصيل المنتج","action":"توضيح الوصف والسعر وخيارات الشراء","rationale":"النص المتاح محدود","priority":"medium","evidence_ids":[str(evidence_id)]}]
+        })
+        drafted=c.post(f"/api/v2/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
+        assert drafted.status_code==200,drafted.text
+        assert drafted.json()["status"]=="pending_review"
+        assert len(drafted.json()["recommendation_ids"])==1
+        assert c.post(f"/api/v2/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"}).json()["recommendation_ids"]==[]
+        rid=drafted.json()["recommendation_ids"][0]
+        assert c.get(f"/api/v2/merchants/{mid}/proposal",headers=H).json()["status"]=="not_ready"
+        assert c.post(f"/api/v2/recommendations/{rid}/review",headers=H,json={"decision":"approved","notes":"self review"}).status_code==403
+        reviewed=c.post(f"/api/v2/recommendations/{rid}/review",headers=R,json={"decision":"approved","notes":"Source inspected manually"})
+        assert reviewed.status_code==200,reviewed.text
+        proposal=c.get(f"/api/v2/merchants/{mid}/proposal",headers=H)
+        assert proposal.status_code==200
+        assert proposal.json()["status"]=="draft_for_human_review"
+        assert proposal.json()["services"][0]["sources"][0]["source_url"]=="https://example.org/product"
+        assert proposal.json()["outreach_sent"] is False
+
+def test_secure_agent_rejects_nonexistent_evidence_ids(pg,monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.pg_api import app
+    from app import agent
+    from app.pg_identity import bootstrap_admin
+    from datetime import datetime,timezone
+    from uuid import uuid4
+    import os
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    details=bootstrap_admin(dsn,"Reject fake "+suffix,f"reject{suffix}@example.org","strong dedicated password 12345")
+    with TestClient(app) as c:
+        tok=c.post("/api/v2/login",json={"email":f"reject{suffix}@example.org","password":"strong dedicated password 12345","org_id":details["org_id"]}).json()["access_token"]
+        H={"Authorization":"Bearer "+tok}
+        mid=c.post("/api/v2/merchants",headers=H,json={"name":"متجر آخر","city":"تعز"}).json()["id"]
+        created=c.post(f"/api/v2/merchants/{mid}/evidence",headers=H,json={"platform":"web","source_url":"https://example.org/shop","observed_at":datetime.now(timezone.utc).isoformat(),"text":"نص موثق"}).json()["id"]
+        monkeypatch.setattr(agent,"run_model",lambda *args:{"summary":"fake",
+             "recommendations":[{"problem":"ادعاء بدون دليل كاف","action":"تعديل حملة تسويقية","rationale":"", "evidence_ids":[str(uuid4())]}]})
+        bad=c.post(f"/api/v2/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
+        assert bad.status_code==422
+        assert c.get("/api/v2/reviews",headers=H).json()["pending"]==[]

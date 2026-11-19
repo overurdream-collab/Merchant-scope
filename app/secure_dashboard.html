@@ -149,7 +149,21 @@ async function loadMerchant(id){await handle(async()=>{
     });
     const print=document.createElement('button');print.textContent='طباعة الملف PDF';print.className='secondary';print.onclick=()=>window.print();
     analyze.hidden=me.role==='reviewer'||me.role==='viewer';
-    toolbar.append(analyze,print);detail.append(toolbar);
+    const aiMode=document.createElement('select');aiMode.title='نوع تحليل الوكيل';
+    for(const [mode,label] of Object.entries({content:'المحتوى',audience:'الجمهور',competition:'المنافسون',prospecting:'فرص التسويق',proposal:'العرض التسويقي'})){
+       const opt=document.createElement('option');opt.value=mode;opt.textContent=label;aiMode.append(opt);
+    }
+    const aiButton=document.createElement('button');aiButton.className='secondary';aiButton.textContent='تحليل AI محلي';
+    aiButton.hidden=analyze.hidden;aiMode.hidden=analyze.hidden;
+    aiButton.onclick=()=>handle(async()=>{
+       aiButton.disabled=true;
+       try{
+           const value=await api('/merchants/'+id+'/agent-draft','POST',{mode:aiMode.value});
+           await loadMerchant(id);await loadReviews();
+           alertText('حُفظت '+value.recommendation_ids.length+' توصيات AI بانتظار مراجعة مستقلة. لا إرسال تلقائياً.');
+       }finally{aiButton.disabled=false}
+    });
+    toolbar.append(analyze,aiMode,aiButton,print);detail.append(toolbar);
     const score=result.assessments[0]?.result||null;
     const box=document.createElement('div');box.className='metric-grid';
     for(const [label,v] of [['الأدلة',result.evidence.length],['التقييم',score?.score??'غير متاح'],['التغطية',score?.coverage!=null?score.coverage+'%':'غير متاح']]){
@@ -211,6 +225,13 @@ async function loadReviews(){
         const card=document.createElement('article');
         paragraph(card,'h3',item.problem);paragraph(card,'p',item.action);
         paragraph(card,'small','التاجر: '+item.merchant_id+' — صاحب الإنشاء: '+item.created_by);
+        for(const source of (item.sources||[])){
+            const line=document.createElement('p');
+            const a=document.createElement('a');a.href=source.url;a.rel='noopener noreferrer';a.target='_blank';a.textContent=source.url;
+            line.append(a);card.append(line);
+            paragraph(card,'small','تاريخ الرصد: '+source.observed_at,'muted');
+        }
+        if(!(item.sources||[]).length)paragraph(card,'p','لا يوجد دليل مرتبط بهذه التوصية؛ الاعتماد ممنوع.','muted');
         const notes=document.createElement('textarea');
         notes.placeholder='ملاحظات مراجعة التوصية';notes.required=true;
         notes.value=reviewDrafts.get(String(item.id))||'';
@@ -227,6 +248,8 @@ async function loadReviews(){
             });
             actions.append(b);
         }
+        actions.hidden=!((me.role==='reviewer'||me.role==='admin')&&String(item.created_by)!==String(me.user_id));
+        if(actions.hidden)paragraph(card,'p','يتطلب القرار مراجعاً مستقلاً عن منشئ التوصية.','muted');
         card.append(actions);root.append(card);
     }
 })}
