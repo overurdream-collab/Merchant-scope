@@ -17,7 +17,141 @@ services:
       - ./db/postgres/002_identity.sql:/docker-entrypoint-initdb.d/002_identity.sql:ro
       - ./db/postgres/003_roles.sh:/docker-entrypoint-initdb.d/003_roles.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d merchantscope >/dev/null && psql -U postgres -d merchantscope -Atc \"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = 'ms_data_api')\" | grep -q '^t
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U postgres -d merchantscope >/dev/null &&
+          psql -U postgres -d merchantscope -Atc "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = 'ms_data_api')" | grep -q '^t
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.secure
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8788:8000"
+    environment:
+      MERCHANTSCOPE_AUTH_DSN: postgresql://ms_auth_api:${MS_AUTH_PASSWORD:?}@db:5432/merchantscope
+      MERCHANTSCOPE_DATA_DSN: postgresql://ms_data_api:${MS_DATA_PASSWORD:?}@db:5432/merchantscope
+      MERCHANTSCOPE_LOCAL_CONTAINER_MODE: "1"
+      MERCHANTSCOPE_OLLAMA_MODEL: ${MERCHANTSCOPE_OLLAMA_MODEL:-}
+      MERCHANTSCOPE_OLLAMA_BASE_URL: http://ollama:11434
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/',timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - merchant_ollama_models:/root/.ollama
+    # No host port exposure; only the app's isolated internal Docker network can reach it.
+    security_opt:
+      - no-new-privileges:true
+  bootstrap:
+    profiles: ["setup"]
+    build:
+      context: .
+      dockerfile: Dockerfile.secure
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MERCHANTSCOPE_ADMIN_DSN: postgresql://postgres:${MS_POSTGRES_SUPERUSER_PASSWORD:?}@db:5432/merchantscope
+    command: ["python","-m","scripts.bootstrap_pg"]
+    stdin_open: true
+    tty: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  merchant_pg_data:
+  merchant_ollama_models:
+"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.secure
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8788:8000"
+    environment:
+      MERCHANTSCOPE_AUTH_DSN: postgresql://ms_auth_api:${MS_AUTH_PASSWORD:?}@db:5432/merchantscope
+      MERCHANTSCOPE_DATA_DSN: postgresql://ms_data_api:${MS_DATA_PASSWORD:?}@db:5432/merchantscope
+      MERCHANTSCOPE_LOCAL_CONTAINER_MODE: "1"
+      MERCHANTSCOPE_OLLAMA_MODEL: ${MERCHANTSCOPE_OLLAMA_MODEL:-}
+      MERCHANTSCOPE_OLLAMA_BASE_URL: http://ollama:11434
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/',timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - merchant_ollama_models:/root/.ollama
+    # No host port exposure; only the app's isolated internal Docker network can reach it.
+    security_opt:
+      - no-new-privileges:true
+  bootstrap:
+    profiles: ["setup"]
+    build:
+      context: .
+      dockerfile: Dockerfile.secure
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MERCHANTSCOPE_ADMIN_DSN: postgresql://postgres:${MS_POSTGRES_SUPERUSER_PASSWORD:?}@db:5432/merchantscope
+    command: ["python","-m","scripts.bootstrap_pg"]
+    stdin_open: true
+    tty: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  merchant_pg_data:
+  merchant_ollama_models:
+
       interval: 5s
       timeout: 4s
       retries: 20
