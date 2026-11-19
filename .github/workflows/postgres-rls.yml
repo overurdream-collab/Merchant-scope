@@ -80,6 +80,16 @@ jobs:
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
             test "$before" = "$after" || { echo "Restored RLS configuration or policies differ"; exit 1; }
           done
+          # Restore must preserve column definitions, constraints and indexes as well as data.
+          # Compare catalog definitions in deterministic order; avoid relying on row counts.
+          column_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s', c.table_name, c.column_name, c.ordinal_position, c.data_type, coalesce(c.udt_name,''), c.is_nullable), E'\\n' ORDER BY c.table_name, c.ordinal_position), '') FROM information_schema.columns c WHERE c.table_schema='ms'"
+          constraint_query="SELECT coalesce(string_agg(format('%s:%s:%s', con.conrelid::regclass::text, con.conname, pg_get_constraintdef(con.oid)), E'\\n' ORDER BY con.conrelid::regclass::text, con.conname), '') FROM pg_constraint con JOIN pg_namespace ns ON ns.oid=con.connamespace WHERE ns.nspname='ms'"
+          index_query="SELECT coalesce(string_agg(format('%s:%s', tablename, indexdef), E'\\n' ORDER BY tablename, indexname), '') FROM pg_indexes WHERE schemaname='ms'"
+          for query in "$column_query" "$constraint_query" "$index_query"; do
+            before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$query")"
+            after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
+            test "$before" = "$after" || { echo "Restored schema columns, constraints or indexes differ"; exit 1; }
+          done
           security="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass")"
           test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
           echo "SUCCESS: disposable tables, rows, RLS flags and policies restored."
