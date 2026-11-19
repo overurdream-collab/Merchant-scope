@@ -47,7 +47,13 @@ def valid_url(s:str):
     if address is not None and not address.is_global:
         raise HTTPException(422,"Private or non-public source URL")
     hostname = u.hostname.lower().rstrip(".")
-    if hostname in ("localhost",) or hostname.endswith((".localhost",".local",".internal")):
+    # URL consumers may resolve integer, hexadecimal or octal IPv4 spellings
+    # (for example 2130706433 or 0x7f000001) to a loopback address.
+    # Do not store these ambiguous hostnames as trusted public provenance.
+    labels = hostname.split(".")
+    numeric_label = lambda label: bool(label) and (label.isascii() and label.isdigit() or label.lower().startswith("0x") and all(c in "0123456789abcdef" for c in label[2:].lower()) and len(label)>2)
+    if (hostname in ("localhost",) or hostname.endswith((".localhost",".local",".internal"))
+        or all(numeric_label(label) for label in labels)):
         raise HTTPException(422,"Private or non-public source URL")
     return s
 def norm(s:str):return " ".join(s.strip().lower().replace("أ","ا").replace("إ","ا").replace("آ","ا").split())
