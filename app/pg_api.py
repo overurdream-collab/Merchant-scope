@@ -3,7 +3,7 @@ Run only after PostgreSQL 001+002 migrations, an offline bootstrap and audited d
 """
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from urllib.parse import urlsplit
 import ipaddress
 from fastapi import FastAPI, HTTPException, Header, Request
@@ -414,3 +414,115 @@ def secure_osm_import(body:SecureOSMImport,authorization:str|None=Header(None)):
                     "caveat":"OSM coverage may be incomplete; business identity not independently verified."}
     except Error as exc:
         raise HTTPException(403,"Import denied by tenant policy or duplicate constraints") from exc
+
+
+# Research candidates are not merchants and have no inferred marketing performance.
+# They remain isolated in ms.research_candidates pending independent source review.
+class ResearchCandidateIn(BaseModel):
+    name:str=Field(min_length=2,max_length=200)
+    city:str=Field(min_length=1,max_length=100)
+    category:str|None=Field(default=None,max_length=150)
+    source_url:str
+    source_kind:Literal["public_directory_listing"]="public_directory_listing"
+    observed_on:date
+
+class ResearchImport(BaseModel):
+    confirm:bool=False
+    records:list[ResearchCandidateIn]=Field(min_length=1,max_length=100)
+
+class ResearchDecision(BaseModel):
+    decision:Literal["reviewed","rejected"]
+    notes:str=Field(min_length=5,max_length=2000)
+
+@app.get("/api/v2/research/candidates")
+def research_candidates(status:Literal["unverified","reviewed","rejected","promoted"]|None=None,
+                        authorization:str|None=Header(None)):
+    ident=current(authorization)
+    with tenant_transaction(data_dsn(),ident) as c:
+        query="""SELECT id,name,city,category,source_url,source_kind,observed_on,
+                 status,review_notes,reviewed_by,reviewed_at,promoted_merchant_id,created_at
+                 FROM ms.research_candidates"""
+        args=()
+        if status:
+            query+=" WHERE status=%s"
+            args=(status,)
+        query+=" ORDER BY created_at,id LIMIT 500"
+        result=as_dict(c,query,args)
+        return {"candidates":result,"count":len(result),
+                "caveat":"Directory candidates are not verified marketing leads, social-media evidence or outreach consent."}
+
+@app.post("/api/v2/research/candidates/import")
+def research_import(body:ResearchImport,authorization:str|None=Header(None)):
+    ident=current(authorization)
+    if not body.confirm:
+        raise HTTPException(422,"Explicit reviewed import confirmation required")
+    for item in body.records:
+        valid_url(item.source_url)
+        if not item.source_url.startswith("https://"):
+            raise HTTPException(422,"Candidate provenance must use HTTPS")
+        if item.observed_on>datetime.now(timezone.utc).date():
+            raise HTTPException(422,"Future source observation is not allowed")
+    try:
+        with tenant_transaction(data_dsn(),ident) as c:
+            inserted=[];duplicates=[]
+            for item in body.records:
+                row=one(c,"""INSERT INTO ms.research_candidates
+                  (org_id,name,normalized_name,city,category,source_url,source_kind,observed_on,created_by)
+                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                  ON CONFLICT (org_id,source_url) DO NOTHING RETURNING id""",
+                  (ident["org_id"],item.name,norm(item.name),item.city,item.category,
+                   item.source_url,item.source_kind,item.observed_on,ident["user_id"]))
+                if row:inserted.append(str(row["id"]))
+                else:duplicates.append(item.source_url)
+            return {"inserted":len(inserted),"ids":inserted,"duplicates":duplicates,
+                    "status":"unverified","outreach_permitted":False}
+    except Error as exc:
+        raise HTTPException(403,"Candidate import denied by tenant permissions") from exc
+
+@app.post("/api/v2/research/candidates/{candidate_id}/review")
+def research_review(candidate_id:uuid.UUID,body:ResearchDecision,
+                    authorization:str|None=Header(None)):
+    ident=current(authorization)
+    try:
+        with tenant_transaction(data_dsn(),ident) as c:
+            result=one(c,"""UPDATE ms.research_candidates SET status=%s,review_notes=%s
+                       WHERE id=%s AND status='unverified'
+                       RETURNING id,status,reviewed_by,reviewed_at""",
+                       (body.decision,body.notes,candidate_id))
+            if not result:raise HTTPException(404,"Unverified candidate not found")
+            return result
+    except Error as exc:
+        raise HTTPException(403,"Independent reviewer decision required") from exc
+
+@app.post("/api/v2/research/candidates/{candidate_id}/promote")
+def research_promote(candidate_id:uuid.UUID,confirm:bool=False,
+                     authorization:str|None=Header(None)):
+    ident=current(authorization)
+    if not confirm:raise HTTPException(422,"Explicit promotion confirmation required")
+    try:
+        with tenant_transaction(data_dsn(),ident) as c:
+            entry=one(c,"SELECT * FROM ms.research_candidates WHERE id=%s FOR UPDATE",(candidate_id,))
+            if not entry:raise HTTPException(404,"Candidate not found")
+            if entry["status"]!="reviewed":
+                raise HTTPException(409,"Only independently reviewed candidates may be promoted")
+            if one(c,"SELECT id FROM ms.merchants WHERE normalized_name=%s AND city=%s",
+                   (entry["normalized_name"],entry["city"])):
+                raise HTTPException(409,"Merchant name and city already exists")
+            if one(c,"SELECT id FROM ms.channels WHERE url=%s",(entry["source_url"],)):
+                raise HTTPException(409,"Source link already associated with a merchant")
+            merchant=one(c,"""INSERT INTO ms.merchants
+                     (org_id,name,normalized_name,city,category,created_by)
+                     VALUES(%s,%s,%s,%s,%s,%s) RETURNING id""",
+                     (ident["org_id"],entry["name"],entry["normalized_name"],
+                      entry["city"],entry["category"],ident["user_id"]))
+            c.execute("""INSERT INTO ms.channels(org_id,merchant_id,platform,url)
+                      VALUES(%s,%s,'directory_listing',%s)""",
+                      (ident["org_id"],merchant["id"],entry["source_url"]))
+            result=one(c,"""UPDATE ms.research_candidates
+                       SET status='promoted',promoted_merchant_id=%s
+                       WHERE id=%s RETURNING id,status,promoted_merchant_id""",
+                       (merchant["id"],candidate_id))
+            return {"candidate":result,"merchant_id":str(merchant["id"]),
+                    "analysis_status":"not_assessed","outreach_approved":False}
+    except Error as exc:
+        raise HTTPException(403,"Promotion prohibited by tenant or candidate security policy") from exc

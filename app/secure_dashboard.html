@@ -43,7 +43,7 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <button>الدخول إلى مرصد التجار</button></form>
 <p class="notice">لا تُحفظ كلمة المرور أو رمز الدخول في التخزين المحلي بالمتصفح. يتطلب تحديث الصفحة تسجيل دخول جديداً.</p></section>
 <div id="workspace" hidden>
-<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="reportPanel">التقارير</button><button data-panel="leadPanel">الفرص البيعية</button><button data-panel="discoveryPanel">اكتشاف التجار</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
+<nav class="tabs no-print"><button data-panel="overviewPanel" class="active">الرئيسية</button><button data-panel="merchantPanel">التجار والمحتوى</button><button data-panel="reviewsPanel">المراجعات</button><button data-panel="reportPanel">التقارير</button><button data-panel="leadPanel">الفرص البيعية</button><button data-panel="discoveryPanel">اكتشاف التجار</button><button data-panel="researchPanel">عينة البحث والمراجعة</button><button data-panel="settingsPanel">الصلاحيات والمصادر</button><button id="refresh">تحديث</button></nav>
 <div class="panel" id="overviewPanel"><section><p class="subtitle">MERCHANT INTELLIGENCE / v2</p><h1>لوحة الاستخبارات التسويقية</h1><p class="subtitle">كل مؤشر يصف بيانات مؤسستك فقط، ولا يشكل إحصاءً للسوق أو وعداً بمبيعات.</p>
 <div id="overviewMetrics" class="metric-grid"></div></section><div class="grid"><section><h2>حالة العمل</h2><p>أضف تاجراً، وثّق منشوراته وروابط الأدلة، أنشئ تقييماً، ثم أرسل التوصيات إلى مراجع مستقل.</p><p class="notice">لا تؤثر التوصيات غير المعتمدة على قرارات التواصل. لا يجري إرسال رسائل تلقائياً.</p></section><section><h2>حماية البيانات</h2><p>صلاحيات المؤسسات معزولة داخل PostgreSQL باستخدام سياسات RLS. مستخدم المحلل لا يمكنه اعتماد توصيته بنفسه.</p><p class="muted">يتطلب النشر العام تأمين TLS والأسرار ومراقبة الخادم واختبار الاستعادة.</p></section></div></div>
 <div class="panel" id="merchantPanel" hidden>
@@ -79,6 +79,21 @@ pre{white-space:pre-wrap;direction:ltr;text-align:left;background:#f2f7f8;paddin
 <button>بحث موثق</button></form>
 <div id="osmPreview"></div><p class="muted">© OpenStreetMap contributors — ODbL. يجب التحقق من دقة السجلات قبل استخدامها تسويقياً.</p>
 </section></div>
+<div class="panel" id="researchPanel" hidden>
+<section>
+<p class="subtitle">RESEARCH CANDIDATE REVIEW / SANAA PILOT</p>
+<h2>مرشحو البحث — لا يُعدّون تجاراً معتمدين</h2>
+<p class="notice">قوائم الدليل مصدر أولي فقط. لا تستخدم هذه الأسماء لتقييم التسويق أو التواصل أو إعداد عروض قبل مراجعة الرابط وربط أدلة فعلية بالمحتوى.</p>
+<div id="candidateImport" class="no-print">
+<label>تحميل قائمة البحث JSON من المشروع <input type="file" id="candidateFile" accept=".json,application/json"></label>
+<div id="candidatePreview" class="stack"></div>
+</div>
+<h3>المرشحون داخل المؤسسة</h3>
+<div class="toolbar no-print"><button id="loadCandidates" class="secondary">تحديث القائمة</button>
+<select id="candidateStatus"><option value="">الكل</option><option value="unverified">بانتظار التحقق</option>
+<option value="reviewed">تمت مراجعة القائمة</option><option value="rejected">مرفوض</option><option value="promoted">أُضيف كتاجر</option></select></div>
+<div id="candidateList"></div>
+</section></div>
 <div class="panel" id="settingsPanel" hidden><section><h2>المؤسسة والمستخدم</h2><div id="meInfo"></div><p class="notice">هذه الواجهة لا تدعم التسجيل العام؛ إنشاء الحسابات وأدوار المؤسسات يتم عبر المسؤول وأوامر التهيئة.</p></section><section><h2>مصادر البيانات</h2><p>تدعم نسخة PostgreSQL الحالية إدخال الأدلة يدوياً، وتقييماً حسابياً حذراً. موصلات المنصات لا تُفعّل دون مفاتيح وحقوق وصول.</p><p class="muted">التعامل مع بيانات OpenStreetMap أو المحتوى الاجتماعي يتطلب الالتزام بالتراخيص وسياسات المنصات.</p></section></div>
 </div>
 </main><script>
@@ -99,7 +114,7 @@ async function handle(callback){try{await callback()}catch(error){alertText(erro
 function textElement(tag,text,cls){const x=document.createElement(tag);x.textContent=String(text??'—');if(cls)x.className=cls;return x}
 function paragraph(parent,tag,text,cls){const p=textElement(tag,text,cls);parent.append(p);return p}
 function showPanel(id){document.querySelectorAll('.panel').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x.dataset.panel===id))}
-document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews();if(x.dataset.panel==='reportPanel')loadPortfolio();if(x.dataset.panel==='leadPanel')loadLeads()});
+document.querySelectorAll('[data-panel]').forEach(x=>x.onclick=()=>{showPanel(x.dataset.panel);if(x.dataset.panel==='reviewsPanel')loadReviews();if(x.dataset.panel==='reportPanel')loadPortfolio();if(x.dataset.panel==='leadPanel')loadLeads();if(x.dataset.panel==='researchPanel')loadResearchCandidates()});
 $('loginForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
     const f=Object.fromEntries(new FormData(e.target));
     const result=await api('/login','POST',f);
@@ -358,4 +373,91 @@ $('osmSearch').onsubmit=e=>{e.preventDefault();handle(async()=>{
   });
   root.append(save);
 })};
+
+let researchManifest=null;
+const candidateReviewDrafts=new Map();
+let candidateLoadSequence=0;
+const candidateFile=$('candidateFile');
+candidateFile.onchange=()=>handle(async()=>{
+  const file=candidateFile.files[0];
+  if(!file)return;
+  if(file.size>250000)throw Error('ملف البحث كبير وغير متوقع');
+  const data=JSON.parse(await file.text());
+  if(!Array.isArray(data.records)||data.records.length>100||data.records.length<1||!/^20[0-9]{2}-[0-9]{2}-[0-9]{2}$/.test(data.collected_on)){
+    throw Error('صيغة ملف البحث غير صحيحة أو لا تحتوي على تاريخ موثق');
+  }
+  researchManifest=data;
+  const root=$('candidatePreview');root.replaceChildren();
+  paragraph(root,'p','تمت قراءة '+data.records.length+' مرشحاً. لم يُدخل أي سجل بعد.','muted');
+  for(const [index,item] of data.records.entries()){
+    const box=document.createElement('div');box.className='evidence';
+    const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.className='research-include';checkbox.value=index;
+    const label=document.createElement('label');label.append(checkbox,document.createTextNode(' '+String(item.name)+' — '+String(item.category)));box.append(label);
+    const anchor=document.createElement('a');anchor.textContent='المصدر';anchor.href=String(item.source_url);anchor.target='_blank';anchor.rel='noopener noreferrer';box.append(anchor);
+    root.append(box);
+  }
+  const confirmButton=document.createElement('button');confirmButton.textContent='إدخال المرشحين المحددين بحالة غير موثّق';
+  confirmButton.onclick=()=>handle(async()=>{
+    const picks=[...root.querySelectorAll('.research-include:checked')].map(x=>data.records[Number(x.value)]);
+    if(!picks.length){alertText('حدد مرشحاً واحداً على الأقل',true);return}
+    if(!confirm('تأكيد تسجيل '+picks.length+' مرشحاً للبحث فقط؟ لن تُرسل رسائل أو تمنح درجات تقييم.'))return;
+    const records=picks.map(item=>({name:item.name,city:item.city,category:item.category,
+       source_url:item.source_url,source_kind:'public_directory_listing',observed_on:data.collected_on}));
+    const saved=await api('/research/candidates/import','POST',{confirm:true,records});
+    alertText('أُدخل '+saved.inserted+' مرشحاً، وتم تجاوز '+saved.duplicates.length+' تكراراً.');
+    root.replaceChildren();candidateFile.value='';researchManifest=null;
+    await loadResearchCandidates();
+  });
+  root.append(confirmButton);
+});
+$('loadCandidates').onclick=loadResearchCandidates;
+$('candidateStatus').onchange=loadResearchCandidates;
+async function loadResearchCandidates(){
+  const seq=++candidateLoadSequence;
+  await handle(async()=>{
+    $('candidateImport').hidden=me.role==='reviewer'||me.role==='viewer';
+    const params=new URLSearchParams();
+    if($('candidateStatus').value)params.set('status',$('candidateStatus').value);
+    const data=await api('/research/candidates?'+params.toString());
+    if(seq!==candidateLoadSequence)return;
+    const root=$('candidateList');root.replaceChildren();
+    paragraph(root,'p','عدد المرشحين في القائمة: '+data.count,'muted');
+    if(!data.count){paragraph(root,'p','لا توجد سجلات بحث في هذه الحالة.','muted');return;}
+    for(const item of data.candidates){
+      const card=document.createElement('article');
+      paragraph(card,'h3',item.name+' — '+item.city);
+      paragraph(card,'span',item.status,'tag');
+      paragraph(card,'p','الفئة: '+(item.category||'غير مصنف')+' — تاريخ الرصد: '+item.observed_on,'muted');
+      const source=document.createElement('a');source.href=item.source_url;source.target='_blank';source.rel='noopener noreferrer';source.textContent='عرض صفحة المنشأة المصدر';
+      card.append(source);
+      if(item.review_notes)paragraph(card,'p','ملاحظات المراجع: '+item.review_notes,'muted');
+      const actions=document.createElement('div');actions.className='toolbar no-print';
+      if(item.status==='unverified'&&(me.role==='reviewer'||me.role==='admin')){
+        const notes=document.createElement('textarea');notes.placeholder='ما الذي تأكدت منه عند فحص المصدر؟';
+        notes.maxLength=2000;
+        notes.value=candidateReviewDrafts.get(item.id)||'';
+        notes.addEventListener('input',()=>candidateReviewDrafts.set(item.id,notes.value));
+        card.append(notes);
+        for(const [choice,label] of [['reviewed','مراجعة المصدر'],['rejected','رفض السجل']]){
+          const button=document.createElement('button');button.textContent=label;button.className=choice==='rejected'?'danger':'secondary';
+          button.onclick=()=>handle(async()=>{
+            if(notes.value.trim().length<5){alertText('اكتب سبباً مفصلاً للمراجعة',true);return;}
+            await api('/research/candidates/'+item.id+'/review','POST',{decision:choice,notes:notes.value});
+            candidateReviewDrafts.delete(item.id);
+            await loadResearchCandidates();alertText('تم حفظ قرار المراجعة');
+          });actions.append(button);
+        }
+      }
+      if(item.status==='reviewed'&&(me.role==='analyst'||me.role==='admin')){
+        const promote=document.createElement('button');promote.textContent='نقل إلى سجل التجار — دون اعتماد تواصل';
+        promote.onclick=()=>handle(async()=>{
+          if(!confirm('هل تود إنشاء ملف تاجر من سجل تمت مراجعته؟ لا يُعتبر المحتوى التسويقي محللاً.'))return;
+          await api('/research/candidates/'+item.id+'/promote?confirm=true','POST');
+          await loadResearchCandidates();await refresh();alertText('أُضيف ملف التاجر دون أدلة أو تقييم أو موافقة تواصل.');
+        });actions.append(promote);
+      }
+      card.append(actions);root.append(card);
+    }
+  });
+}
 </script></body></html>
