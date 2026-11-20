@@ -100,10 +100,17 @@ jobs:
           # Parity is not enforcement: a disabled source trigger restored identically
           # would pass the comparison above. Reject any disabled audit/guard trigger
           # in BOTH disposable databases (O = enabled for ordinary origin writes).
-          disabled_trigger_query="SELECT coalesce(string_agg(format('%s.%s:%s', c.relname, t.tgname, t.tgenabled), ',' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND t.tgname ~ '^(audit|guard)' AND t.tgenabled <> 'O'"
+          disabled_trigger_query="SELECT coalesce(string_agg(format('%s.%s:%s', c.relname, t.tgname, t.tgenabled), ',' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND (t.tgname LIKE 'audit_%' OR t.tgname IN ('recommendations_guard','leads_guard','candidate_guard')) AND t.tgenabled <> 'O'"
           for database in merchantscope_test merchantscope_restore; do
             disabled="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$disabled_trigger_query")"
             test -z "$disabled" || { echo "SECURITY FAILURE: audit/guard triggers not enabled in $database: $disabled"; exit 1; }
+          done
+          # An empty disabled-trigger result also passes if a required guard was dropped
+          # from both databases. Assert the migration-defined guard inventory separately.
+          required_guard_query="SELECT coalesce(string_agg(t.tgname, ',' ORDER BY t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND t.tgname IN ('recommendations_guard','leads_guard','candidate_guard')"
+          for database in merchantscope_test merchantscope_restore; do
+            guards="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$required_guard_query")"
+            test "$guards" = "candidate_guard,leads_guard,recommendations_guard" || { echo "SECURITY FAILURE: required guard trigger missing in $database: $guards"; exit 1; }
           done
           # A restored schema may lose or alter a view without changing any base-table rows.
           # Compare both ordinary and materialized view definitions, including an empty inventory.
