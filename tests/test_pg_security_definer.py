@@ -1,14 +1,19 @@
-"""Fail closed when any SECURITY DEFINER function is executable by PUBLIC or runtime.
+"""Catalog-wide SECURITY DEFINER execution guard for disposable PostgreSQL CI.
 
-Run after test_pg_schema.py, which creates the disposable CI schema and roles.
-This is a catalog-wide guard: newly added functions must be covered automatically.
+Run after test_pg_schema.py, which creates roles and applies migration 004.
+The runtime may execute exactly two RLS membership predicates; PUBLIC may
+execute none. New privileged functions fail closed unless explicitly reviewed.
 """
 import os
+
 import pytest
 
 
+RUNTIME_RLS_PREDICATES = {"ms.has_role(ms.member_role)", "ms.is_member()"}
+
+
 @pytest.mark.parametrize("role", ["PUBLIC", "merchant_runtime"])
-def test_security_definer_routines_are_not_executable_by_untrusted_roles(role):
+def test_security_definer_execution_is_exactly_allowlisted(role):
     psycopg = pytest.importorskip("psycopg")
     dsn = os.environ.get("PG_TEST_DSN")
     if not dsn:
@@ -36,5 +41,10 @@ def test_security_definer_routines_are_not_executable_by_untrusted_roles(role):
             (role,),
         ).fetchall()
     assert rows, "No SECURITY DEFINER functions found; review schema setup"
-    exposed = [name for name, allowed in rows if allowed]
-    assert not exposed, f"{role} can execute privileged routines: {exposed}"
+    exposed = {name for name, allowed in rows if allowed}
+    expected = RUNTIME_RLS_PREDICATES if role == "merchant_runtime" else set()
+    assert exposed == expected, (
+        f"{role} SECURITY DEFINER execution drift: "
+        f"unexpected={sorted(exposed - expected)}, "
+        f"missing_required={sorted(expected - exposed)}"
+    )
