@@ -129,6 +129,18 @@ jobs:
             bindings="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$audit_binding_query")"
             test "$bindings" = "$expected_audit_bindings" || { echo "SECURITY FAILURE: required audit trigger bindings drift in $database: $bindings"; exit 1; }
           done
+          # Trigger name, binding and enabled state do not prove that the trigger
+          # still fires on the intended DML events. PostgreSQL tgtype encodes
+          # row-level (1), BEFORE (2), INSERT (4), DELETE (8), UPDATE (16).
+          # Audit triggers are AFTER ROW INSERT/UPDATE/DELETE (29), except
+          # candidate audit (AFTER ROW INSERT/UPDATE = 21). Guards are
+          # BEFORE ROW INSERT/UPDATE (23). Check both source and restore.
+          trigger_events_query="SELECT coalesce(string_agg(c.relname || ':' || t.tgname || ':' || t.tgtype::text, ',' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND (t.tgname LIKE 'audit_%' OR t.tgname IN ('recommendations_guard','leads_guard','candidate_guard'))"
+          expected_trigger_events="assessments:audit_assessments:29,channels:audit_channels:29,evidence:audit_evidence:29,leads:audit_leads:29,leads:leads_guard:23,merchants:audit_merchants:29,recommendation_evidence:audit_recommendation_evidence:29,recommendations:audit_recommendations:29,recommendations:recommendations_guard:23,research_candidates:audit_candidates:21,research_candidates:candidate_guard:23"
+          for database in merchantscope_test merchantscope_restore; do
+            events="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$trigger_events_query")"
+            test "$events" = "$expected_trigger_events" || { echo "SECURITY FAILURE: audit/guard DML event coverage drift in $database: $events"; exit 1; }
+          done
           # A restored schema may lose or alter a view without changing any base-table rows.
           # Compare both ordinary and materialized view definitions, including an empty inventory.
           view_query="SELECT coalesce(string_agg(format('%s:%s:%s', c.relname, c.relkind, pg_get_viewdef(c.oid, true)), E'\\n' ORDER BY c.relname, c.relkind), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('v','m')"
