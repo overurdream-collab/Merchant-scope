@@ -91,6 +91,12 @@ jobs:
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
             test "$before" = "$after" || { echo "Restored schema columns/defaults, constraints, indexes or triggers differ"; exit 1; }
           done
+          # A restored schema may lose or alter a view without changing any base-table rows.
+          # Compare both ordinary and materialized view definitions, including an empty inventory.
+          view_query="SELECT coalesce(string_agg(format('%s:%s:%s', c.relname, c.relkind, pg_get_viewdef(c.oid, true)), E'\\n' ORDER BY c.relname, c.relkind), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('v','m')"
+          before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$view_query")"
+          after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$view_query")"
+          test "$before" = "$after" || { echo "Restore view definition or inventory mismatch"; exit 1; }
           # Audit and authorization may depend on SQL functions, which earlier comparisons omitted.
           # Compare function signatures, definitions, execution-security flags and per-function\n          # configuration (including SECURITY DEFINER search_path) after restore.
           function_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s:%s', p.proname, pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid), p.prosecdef, p.provolatile, coalesce(array_to_string(p.proconfig, ','), '<default>'), pg_get_functiondef(p.oid)), E'\\\\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prokind IN ('f','p')"
