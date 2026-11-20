@@ -190,7 +190,7 @@ jobs:
           done
           # Default privileges govern FUTURE objects and are not represented by
           # existing table/function ACL comparisons. Preserve them across restore.
-          default_acl_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s', pg_get_userbyid(d.defaclrole), coalesce(n.nspname,'<global>'), d.defaclobjtype, CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, a.privilege_type, a.is_grantable), E'\\n' ORDER BY d.defaclrole, n.nspname NULLS FIRST, d.defaclobjtype, a.grantee, a.privilege_type, a.is_grantable), '') FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace CROSS JOIN LATERAL aclexplode(d.defaclacl) a WHERE n.nspname='ms' OR d.defaclnamespace=0"
+          default_acl_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s:%s', pg_get_userbyid(d.defaclrole), coalesce(n.nspname,'<global>'), d.defaclobjtype, CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, a.privilege_type, a.is_grantable, pg_get_userbyid(a.grantor)), E'\\n' ORDER BY d.defaclrole, n.nspname NULLS FIRST, d.defaclobjtype, a.grantee, a.privilege_type, a.is_grantable, a.grantor), '') FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace CROSS JOIN LATERAL aclexplode(d.defaclacl) a WHERE n.nspname='ms' OR d.defaclnamespace=0"
           before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$default_acl_query")"
           after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$default_acl_query")"
           test "$before" = "$after" || { echo "SECURITY FAILURE: restored default privileges differ"; exit 1; }
