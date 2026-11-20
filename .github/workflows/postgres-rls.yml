@@ -112,6 +112,15 @@ jobs:
             guards="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$required_guard_query")"
             test "$guards" = "candidate_guard,leads_guard,recommendations_guard" || { echo "SECURITY FAILURE: required guard trigger missing in $database: $guards"; exit 1; }
           done
+          # A guard with the right name but attached to the wrong table leaves the
+          # protected table unguarded. Assert exact table-to-trigger bindings in
+          # both databases, independently of restore parity.
+          guard_binding_query="SELECT coalesce(string_agg(c.relname || ':' || t.tgname, ',' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND t.tgname IN ('recommendations_guard','leads_guard','candidate_guard')"
+          expected_guard_bindings="leads:leads_guard,recommendations:recommendations_guard,research_candidates:candidate_guard"
+          for database in merchantscope_test merchantscope_restore; do
+            bindings="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$guard_binding_query")"
+            test "$bindings" = "$expected_guard_bindings" || { echo "SECURITY FAILURE: guard trigger table bindings drift in $database: $bindings"; exit 1; }
+          done
           # A restored schema may lose or alter a view without changing any base-table rows.
           # Compare both ordinary and materialized view definitions, including an empty inventory.
           view_query="SELECT coalesce(string_agg(format('%s:%s:%s', c.relname, c.relkind, pg_get_viewdef(c.oid, true)), E'\\n' ORDER BY c.relname, c.relkind), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('v','m')"
