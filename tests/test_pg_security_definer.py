@@ -76,6 +76,11 @@ def test_security_definer_search_path_is_pinned():
     unsafe = {
         signature: settings
         for signature, settings in rows
-        if "search_path=ms,pg_temp" not in settings
+        if not any(
+            setting.startswith("search_path=")
+            and [part.strip() for part in setting.split("=", 1)[1].split(",")]
+            == ["ms", "pg_temp"]
+            for setting in settings
+        )
     }
     assert not unsafe, f"Unsafe SECURITY DEFINER search_path: {unsafe}"
