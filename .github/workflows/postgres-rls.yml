@@ -91,6 +91,12 @@ jobs:
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
             test "$before" = "$after" || { echo "Restored schema columns/defaults, constraints, indexes or triggers differ"; exit 1; }
           done
+          # Trigger definitions do not encode tgenabled: a disabled audit or guard
+          # trigger can have an identical pg_get_triggerdef while enforcement stops.
+          trigger_state_query="SELECT coalesce(string_agg(format('%s:%s:%s', c.relname, t.tgname, t.tgenabled), E'\\n' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal"
+          before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$trigger_state_query")"
+          after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$trigger_state_query")"
+          test "$before" = "$after" || { echo "SECURITY FAILURE: restored audit/guard trigger enabled state differs"; exit 1; }
           # A restored schema may lose or alter a view without changing any base-table rows.
           # Compare both ordinary and materialized view definitions, including an empty inventory.
           view_query="SELECT coalesce(string_agg(format('%s:%s:%s', c.relname, c.relkind, pg_get_viewdef(c.oid, true)), E'\\n' ORDER BY c.relname, c.relkind), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('v','m')"
