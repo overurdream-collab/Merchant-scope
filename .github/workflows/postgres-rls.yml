@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements-dev.txt "psycopg[binary]>=3.2,<4"
-      - run: python -m pytest -q tests/test_pg_schema.py tests/test_pg_security_definer.py
+      - run: python -m pytest -q tests/test_pg_schema.py tests/test_pg_security_definer.py tests/test_pg_schema_ownership.py
       - name: Install browser acceptance tooling
         run: |
           pip install "playwright>=1.51,<2"
