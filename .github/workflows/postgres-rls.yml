@@ -117,6 +117,13 @@ jobs:
               test "$before" = "$after" || { echo "Restore sequence state mismatch: $sequence"; exit 1; }
             done
           fi
+          # Owners are security principals: matching ACLs and SQL bodies do not
+          # guarantee a safe restore when a SECURITY DEFINER function or table
+          # has changed owner. Compare schema, relations and routines by role name.
+          owner_query="SELECT coalesce(string_agg(object_type || ':' || object_name || ':' || owner_name, E'\\n' ORDER BY object_type, object_name), '') FROM (SELECT 'schema'::text AS object_type, n.nspname::text AS object_name, pg_get_userbyid(n.nspowner)::text AS owner_name FROM pg_namespace n WHERE n.nspname='ms' UNION ALL SELECT 'relation', c.relname || ':' || c.relkind::text, pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' UNION ALL SELECT 'routine', p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')', pg_get_userbyid(p.proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms') owned"
+          before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$owner_query")"
+          after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$owner_query")"
+          test "$before" = "$after" || { echo "SECURITY FAILURE: restored schema, relation or routine ownership differs"; exit 1; }
           # Object ACLs can drift even when schema definitions and RLS policies match.
           # Compare effective grants, not raw relacl text: PostgreSQL represents
           # owner-only privileges as either NULL (defaults) or explicit ACL entries.
