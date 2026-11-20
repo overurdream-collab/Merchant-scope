@@ -140,7 +140,7 @@ jobs:
           # Apply the same catalog-wide SECURITY DEFINER guard to the restored database.
           # Testing only the two auth functions would miss a newly introduced
           # privileged routine that regained PUBLIC or runtime EXECUTE on restore.
-          definer_acl_query="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f'::\\\"char\\\",p.proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE')"
+          definer_acl_query="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE')"
           definer_runtime_query="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege('merchant_runtime',p.oid,'EXECUTE')"
           for database in merchantscope_test merchantscope_restore; do
             public_exposed="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$definer_acl_query")"
