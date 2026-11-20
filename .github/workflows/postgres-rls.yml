@@ -158,6 +158,13 @@ jobs:
           test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
           echo "SUCCESS: disposable tables, rows, column defaults, constraints, indexes, triggers, RLS flags and policies restored."
 
+      - name: Validate restored SECURITY DEFINER routines with live role checks
+        # Catalog parity alone is insufficient: execute the negative permission
+        # and pinned search_path tests against the independent restored database.
+        env:
+          PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore
+        run: python -m pytest -q tests/test_pg_security_definer.py
+
       - name: Upload secure synthetic UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
