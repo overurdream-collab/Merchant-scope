@@ -188,6 +188,12 @@ jobs:
             after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$query")"
             test "$before" = "$after" || { echo "SECURITY FAILURE: restored schema/object ACL mismatch"; echo "ACL query: $query"; printf "SOURCE ACL:\n%s\nRESTORED ACL:\n%s\n" "$before" "$after"; exit 1; }
           done
+          # Default privileges govern FUTURE objects and are not represented by
+          # existing table/function ACL comparisons. Preserve them across restore.
+          default_acl_query="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s', pg_get_userbyid(d.defaclrole), coalesce(n.nspname,'<global>'), d.defaclobjtype, CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, a.privilege_type, a.is_grantable), E'\\n' ORDER BY d.defaclrole, n.nspname NULLS FIRST, d.defaclobjtype, a.grantee, a.privilege_type, a.is_grantable), '') FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace CROSS JOIN LATERAL aclexplode(d.defaclacl) a WHERE n.nspname='ms' OR d.defaclnamespace=0"
+          before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$default_acl_query")"
+          after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$default_acl_query")"
+          test "$before" = "$after" || { echo "SECURITY FAILURE: restored default privileges differ"; exit 1; }
           # SECURITY DEFINER authentication functions must never regain PUBLIC EXECUTE.
           # --no-acl on restore would silently restore PostgreSQL's default PUBLIC EXECUTE.
           privilege_query="SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE n.nspname='ms' AND p.proname IN ('login_account','lookup_session') AND acl.grantee=0 AND acl.privilege_type='EXECUTE')"

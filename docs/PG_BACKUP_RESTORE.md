@@ -30,3 +30,6 @@ The restore workflow previously compared `pg_namespace.nspacl::text` literally e
 
 ## Trigger enforcement-state restore regression (2026-11-20)
 The PostgreSQL CI restore comparison now checks `pg_trigger.tgenabled` for every non-internal trigger in schema `ms`, keyed by relation and trigger name. Comparing `pg_get_triggerdef` alone does not verify whether audit/guard triggers are enabled, disabled, replica-only or always-on. A mismatch fails the disposable restore gate. This is a metadata parity check on synthetic same-cluster data, not proof that triggers are enabled in a real production deployment. Validate the exact commit in PostgreSQL RLS CI before accepting this additional gate.
+
+## Default privilege restore parity (2026-11-20)
+The disposable restore gate also compares effective `pg_default_acl` grants for schema `ms` and database-global defaults, expanded through `aclexplode`. These rules govern **future** objects and can drift even when every existing table and routine ACL matches. The check compares the source and restored databases; it does not assert a safe default-privilege policy for production, and same-cluster globals remain outside the schema-only disaster-recovery scope. Require a green exact-head PostgreSQL workflow before marking this regression verified.
