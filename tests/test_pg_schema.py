@@ -13,6 +13,7 @@ def pg():
         c.execute((Path(__file__).parents[1]/"db"/"postgres"/"001_init.sql").read_text(encoding="utf-8"))
         c.execute((Path(__file__).parents[1]/"db"/"postgres"/"002_identity.sql").read_text(encoding="utf-8"))
         c.execute((Path(__file__).parents[1]/"db"/"postgres"/"003_research_candidates.sql").read_text(encoding="utf-8"))
+        c.execute((Path(__file__).parents[1]/"db"/"postgres"/"004_definer_permissions.sql").read_text(encoding="utf-8"))
         org_a,org_b,analyst,reviewer,other=[uuid4() for _ in range(5)]
         for org,name in ((org_a,"Team A"),(org_b,"Team B")):
             c.execute("INSERT INTO ms.organizations(id,name) VALUES (%s,%s)",(org,name))
