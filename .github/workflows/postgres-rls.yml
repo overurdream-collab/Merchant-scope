@@ -97,6 +97,14 @@ jobs:
           before="$(docker exec "$service" psql -X -U postgres -d merchantscope_test -Atc "$trigger_state_query")"
           after="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "$trigger_state_query")"
           test "$before" = "$after" || { echo "SECURITY FAILURE: restored audit/guard trigger enabled state differs"; exit 1; }
+          # Parity is not enforcement: a disabled source trigger restored identically
+          # would pass the comparison above. Reject any disabled audit/guard trigger
+          # in BOTH disposable databases (O = enabled for ordinary origin writes).
+          disabled_trigger_query="SELECT coalesce(string_agg(format('%s.%s:%s', c.relname, t.tgname, t.tgenabled), ',' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND t.tgname ~ '^(audit|guard)' AND t.tgenabled <> 'O'"
+          for database in merchantscope_test merchantscope_restore; do
+            disabled="$(docker exec "$service" psql -X -U postgres -d "$database" -Atc "$disabled_trigger_query")"
+            test -z "$disabled" || { echo "SECURITY FAILURE: audit/guard triggers not enabled in $database: $disabled"; exit 1; }
+          done
           # A restored schema may lose or alter a view without changing any base-table rows.
           # Compare both ordinary and materialized view definitions, including an empty inventory.
           view_query="SELECT coalesce(string_agg(format('%s:%s:%s', c.relname, c.relkind, pg_get_viewdef(c.oid, true)), E'\\n' ORDER BY c.relname, c.relkind), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('v','m')"
