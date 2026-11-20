@@ -38,6 +38,8 @@ jobs:
         env:
           MERCHANTSCOPE_SCREENSHOT_DIR: secure-ui-artifacts
         run: python tests/pg_browser_smoke.py
+      - name: Verify core tenant RLS and policy baseline on source database
+        run: python -m pytest -q tests/test_pg_restore_rls_baseline.py
       - name: Rehearse PostgreSQL backup and restore into separate disposable database
         shell: bash
         run: |
@@ -221,6 +223,12 @@ jobs:
           security="$(docker exec "$service" psql -X -U postgres -d merchantscope_restore -Atc "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass")"
           test "$security" = "t" || { echo "Candidate RLS absent after restore"; exit 1; }
           echo "SUCCESS: disposable tables, rows, column defaults, constraints, indexes, triggers, RLS flags and policies restored."
+
+      - name: Verify core tenant RLS and policy baseline on restored database
+        # Read-only: do not rerun migrations, which could conceal restore defects.
+        env:
+          PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore
+        run: python -m pytest -q tests/test_pg_restore_rls_baseline.py
 
       - name: Validate restored SECURITY DEFINER routines with live role checks
         # Catalog parity alone is insufficient: execute the negative permission
