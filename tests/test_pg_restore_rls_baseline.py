@@ -43,13 +43,29 @@ def test_core_tenant_rls_and_policy_baseline():
             f"Core tables without RLS: {[name for name, (enabled, kind) in actual.items() if not enabled or kind not in ('r', 'p')]}"
         )
         policies = conn.execute(
-            """SELECT tablename, policyname FROM pg_policies
+            """SELECT tablename, policyname, cmd, qual, with_check FROM pg_policies
                WHERE schemaname='ms' AND tablename = ANY(%s)""",
             (list(CORE_TENANT_TABLES),),
         ).fetchall()
         by_table = {table: set() for table in CORE_TENANT_TABLES}
-        for table, policy in policies:
+        for table, policy, cmd, qual, with_check in policies:
             by_table[table].add(policy)
+            if policy in REQUIRED_POLICIES[table]:
+                expected_cmd = "ALL" if policy == "membership_write" else "SELECT"
+                assert cmd == expected_cmd, f"Unsafe policy command on {table}.{policy}: {cmd}"
+                assert qual and "active_org()" in qual, (
+                    f"Missing tenant scope in {table}.{policy} USING clause: {qual}"
+                )
+                expected_predicate = (
+                    "has_role(" if policy == "membership_write" else "is_member()"
+                )
+                assert expected_predicate in qual, (
+                    f"Missing membership/role guard in {table}.{policy}: {qual}"
+                )
+                if policy == "membership_write":
+                    assert with_check and "active_org()" in with_check and "has_role(" in with_check, (
+                        f"Missing tenant/admin WITH CHECK on {table}.{policy}: {with_check}"
+                    )
         for table, required in REQUIRED_POLICIES.items():
             assert required <= by_table[table], (
                 f"Missing baseline policies on {table}: {required - by_table[table]}"
