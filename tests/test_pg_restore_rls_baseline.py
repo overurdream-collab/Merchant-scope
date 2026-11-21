@@ -12,6 +12,17 @@ CORE_TENANT_TABLES = (
     "assessments", "recommendations", "recommendation_evidence",
     "leads", "audit_events",
 )
+# Write policies are part of the expected authorization contract, not optional.
+# A missing policy may silently disable legitimate workflows even if reads work.
+WRITE_POLICY_TABLES = (
+    "merchants", "channels", "evidence", "assessments",
+    "recommendations", "recommendation_evidence", "leads",
+)
+UPDATE_POLICY_TABLES = (
+    "merchants", "channels", "evidence", "assessments",
+    "recommendations", "recommendation_evidence", "leads",
+)
+
 REQUIRED_POLICIES = {
     "organizations": {"org_read"},
     "memberships": {"membership_read", "membership_write"},
@@ -74,6 +85,14 @@ def test_core_tenant_rls_and_policy_baseline():
                     assert with_check and "active_org()" in with_check and "has_role(" in with_check, (
                         f"Missing tenant/admin WITH CHECK on {table}.{policy}: {with_check}"
                     )
+        for table in WRITE_POLICY_TABLES:
+            assert "tenant_insert" in by_table[table], (
+                f"Missing tenant INSERT policy on {table}"
+            )
+        for table in UPDATE_POLICY_TABLES:
+            assert "tenant_update" in by_table[table], (
+                f"Missing tenant UPDATE policy on {table}"
+            )
         for table, required in REQUIRED_POLICIES.items():
             assert required <= by_table[table], (
                 f"Missing baseline policies on {table}: {required - by_table[table]}"
