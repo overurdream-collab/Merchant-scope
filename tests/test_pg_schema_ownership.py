@@ -66,3 +66,26 @@ def test_application_roles_cannot_bypass_row_level_security():
     )
     unsafe = [name for name, superuser, bypassrls in rows if superuser or bypassrls]
     assert not unsafe, f"Application roles can bypass tenant RLS: {unsafe}"
+
+
+def test_application_roles_have_no_cluster_administration_attributes():
+    """A compromised application credential must not manage roles or databases."""
+    psycopg = pytest.importorskip("psycopg")
+    dsn = os.environ.get("PG_TEST_DSN")
+    if not dsn:
+        pytest.skip("Disposable PostgreSQL CI database is required")
+    with psycopg.connect(dsn) as conn:
+        rows = conn.execute(
+            """SELECT rolname, rolcreaterole, rolcreatedb, rolreplication
+               FROM pg_roles
+               WHERE rolname IN ('merchant_runtime', 'merchant_auth')
+               ORDER BY rolname"""
+        ).fetchall()
+    assert {row[0] for row in rows} == {'merchant_runtime', 'merchant_auth'}, (
+        f"Required application roles missing: {rows}"
+    )
+    unsafe = [name for name, create_role, create_db, replication in rows
+              if create_role or create_db or replication]
+    assert not unsafe, (
+        "Application roles hold cluster administration privileges: " + repr(unsafe)
+    )
