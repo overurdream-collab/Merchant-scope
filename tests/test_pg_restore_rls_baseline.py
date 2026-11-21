@@ -81,7 +81,7 @@ def test_core_tenant_rls_and_policy_baseline():
 
         # An extra permissive policy can OR past an otherwise correct tenant
         # policy. Inspect every policy, not only the required policy names.
-        for table, policy, cmd, qual, with_check in policies:
+        for table, policy, cmd, qual, with_check, _permissive, _roles in policies:
             if policy in REQUIRED_POLICIES[table]:
                 continue
             if policy not in {"tenant_insert", "tenant_update"}:
