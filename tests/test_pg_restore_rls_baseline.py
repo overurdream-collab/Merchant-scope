@@ -43,13 +43,21 @@ def test_core_tenant_rls_and_policy_baseline():
             f"Core tables without RLS: {[name for name, (enabled, kind) in actual.items() if not enabled or kind not in ('r', 'p')]}"
         )
         policies = conn.execute(
-            """SELECT tablename, policyname, cmd, qual, with_check FROM pg_policies
+            """SELECT tablename, policyname, cmd, qual, with_check, permissive, roles FROM pg_policies
                WHERE schemaname='ms' AND tablename = ANY(%s)""",
             (list(CORE_TENANT_TABLES),),
         ).fetchall()
         by_table = {table: set() for table in CORE_TENANT_TABLES}
-        for table, policy, cmd, qual, with_check in policies:
+        for table, policy, cmd, qual, with_check, permissive, roles in policies:
             by_table[table].add(policy)
+            # A restrictive-only policy does not grant access on its own, while
+            # unexpected role targeting changes the tested authorization model.
+            assert permissive == 'PERMISSIVE', (
+                f'Unexpected restrictive policy {table}.{policy}: {permissive}'
+            )
+            assert roles == ['public'], (
+                f'Unexpected policy role targets {table}.{policy}: {roles}'
+            )
             if policy in REQUIRED_POLICIES[table]:
                 expected_cmd = "ALL" if policy == "membership_write" else "SELECT"
                 assert cmd == expected_cmd, f"Unsafe policy command on {table}.{policy}: {cmd}"
@@ -82,11 +90,9 @@ def test_core_tenant_rls_and_policy_baseline():
                 raise AssertionError(f"Unexpected write policy {table}.{policy}")
             expected_cmd = "INSERT" if policy == "tenant_insert" else "UPDATE"
             assert cmd == expected_cmd, f"Unexpected command {table}.{policy}: {cmd}"
-            assert with_check and "active_org()" in with_check and "can_write()" in with_check or (
-                policy == "tenant_update" and table in ("recommendations", "leads")
-                and with_check and "active_org()" in with_check
-                and "can_write()" in with_check and "has_role(" in with_check
-            ), f"Unscoped write WITH CHECK on {table}.{policy}: {with_check}"
+            assert with_check and "active_org()" in with_check and "can_write()" in with_check, (
+                f"Unscoped write WITH CHECK on {table}.{policy}: {with_check}"
+            )
             if policy == "tenant_update":
                 assert qual and "active_org()" in qual and "can_write()" in qual, (
                     f"Unscoped UPDATE USING on {table}.{policy}: {qual}"
