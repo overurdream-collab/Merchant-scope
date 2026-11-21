@@ -118,3 +118,34 @@ def test_application_roles_do_not_inherit_pg_privileged_capabilities():
     )
     inherited = [(app, cap) for app, cap, allowed in rows if allowed]
     assert not inherited, f"Application roles inherit privileged capabilities: {inherited}"
+
+
+def test_application_roles_do_not_own_tenant_tables_or_schema():
+    """Table owners normally bypass RLS; neither app credential may own tenant data."""
+    psycopg = pytest.importorskip("psycopg")
+    dsn = os.environ.get("PG_TEST_DSN")
+    if not dsn:
+        pytest.skip("Disposable PostgreSQL CI database is required")
+    with psycopg.connect(dsn) as conn:
+        schema = conn.execute(
+            """SELECT pg_get_userbyid(nspowner)
+               FROM pg_namespace WHERE nspname = 'ms'"""
+        ).fetchone()
+        assert schema is not None, "Application schema ms is missing"
+        rows = conn.execute(
+            """SELECT c.relname, c.relkind, pg_get_userbyid(c.relowner)
+               FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'ms' AND c.relkind IN ('r', 'p')
+               ORDER BY c.relname"""
+        ).fetchall()
+    assert rows, "No tenant tables found in application schema"
+    untrusted = {'merchant_runtime', 'merchant_auth'}
+    assert schema[0] not in untrusted, (
+        f"Application schema owned by untrusted role: {schema[0]}"
+    )
+    unsafe = [(table, kind, owner) for table, kind, owner in rows
+              if owner in untrusted]
+    assert not unsafe, (
+        "Application role owns tenant tables and can bypass RLS: " + repr(unsafe)
+    )
