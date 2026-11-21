@@ -46,3 +46,23 @@ def test_privileged_routines_are_not_owned_by_runtime_or_auth_roles():
     unsafe = [(signature, owner) for signature, owner in rows
               if owner in {'merchant_runtime', 'merchant_auth'}]
     assert not unsafe, f"SECURITY DEFINER owner is an untrusted role: {unsafe}"
+
+
+def test_application_roles_cannot_bypass_row_level_security():
+    """RLS policy checks are meaningless if a runtime role can bypass RLS."""
+    psycopg = pytest.importorskip("psycopg")
+    dsn = os.environ.get("PG_TEST_DSN")
+    if not dsn:
+        pytest.skip("Disposable PostgreSQL CI database is required")
+    with psycopg.connect(dsn) as conn:
+        rows = conn.execute(
+            """SELECT rolname, rolsuper, rolbypassrls
+               FROM pg_roles
+               WHERE rolname IN ('merchant_runtime', 'merchant_auth')
+               ORDER BY rolname"""
+        ).fetchall()
+    assert {row[0] for row in rows} == {'merchant_runtime', 'merchant_auth'}, (
+        f"Required application roles missing: {rows}"
+    )
+    unsafe = [name for name, superuser, bypassrls in rows if superuser or bypassrls]
+    assert not unsafe, f"Application roles can bypass tenant RLS: {unsafe}"
