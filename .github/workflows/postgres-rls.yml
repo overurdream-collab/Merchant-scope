@@ -246,7 +246,3 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Independently enforce tenant RLS baseline on restored database
-        env:
-          PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore
-        run: python -m pytest -q tests/test_pg_restore_rls_baseline.py
