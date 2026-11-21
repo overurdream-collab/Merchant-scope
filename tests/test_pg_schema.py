@@ -1,0 +1,547 @@
+"""PostgreSQL RLS acceptance tests. Executed by the dedicated PG CI job."""
+import os
+from pathlib import Path
+from uuid import uuid4
+import pytest
+
+@pytest.fixture(scope="module")
+def pg():
+    dsn=os.environ.get("PG_TEST_DSN")
+    if not dsn: pytest.skip("PostgreSQL service not configured")
+    psycopg=pytest.importorskip("psycopg")
+    with psycopg.connect(dsn,autocommit=True) as c:
+        c.execute((Path(__file__).parents[1]/"db"/"postgres"/"001_init.sql").read_text(encoding="utf-8"))
+        c.execute((Path(__file__).parents[1]/"db"/"postgres"/"002_identity.sql").read_text(encoding="utf-8"))
+        c.execute((Path(__file__).parents[1]/"db"/"postgres"/"003_research_candidates.sql").read_text(encoding="utf-8"))
+        c.execute((Path(__file__).parents[1]/"db"/"postgres"/"004_definer_permissions.sql").read_text(encoding="utf-8"))
+        org_a,org_b,analyst,reviewer,other=[uuid4() for _ in range(5)]
+        for org,name in ((org_a,"Team A"),(org_b,"Team B")):
+            c.execute("INSERT INTO ms.organizations(id,name) VALUES (%s,%s)",(org,name))
+        for org,user,role in ((org_a,analyst,"analyst"),(org_a,reviewer,"reviewer"),(org_b,other,"analyst")):
+            c.execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,%s)",(org,user,role))
+        m1,m2=uuid4(),uuid4()
+        for mid,org,name,creator in ((m1,org_a,"A merchant",analyst),(m2,org_b,"B merchant",other)):
+            c.execute("INSERT INTO ms.merchants(id,org_id,name,normalized_name,city,created_by) VALUES(%s,%s,%s,%s,%s,%s)",
+                      (mid,org,name,name.lower(),"Sanaa",creator))
+        yield dict(db=c,org_a=org_a,org_b=org_b,analyst=analyst,reviewer=reviewer,other=other,m1=m1,m2=m2)
+
+def assume(c,user,org):
+    c.execute("SET ROLE merchant_runtime")
+    c.execute("SELECT set_config('app.user_id',%s,false)",(str(user),))
+    c.execute("SELECT set_config('app.org_id',%s,false)",(str(org),))
+
+def unassume(c):
+    c.execute("RESET ROLE")
+    c.execute("RESET app.user_id")
+    c.execute("RESET app.org_id")
+
+def test_rls_blocks_other_tenant(pg):
+    c=pg["db"]
+    assume(c,pg["analyst"],pg["org_a"])
+    try:
+        names=[x[0] for x in c.execute("SELECT name FROM ms.merchants").fetchall()]
+        assert names==["A merchant"]
+        assert c.execute("SELECT count(*) FROM ms.merchants WHERE id=%s",(pg["m2"],)).fetchone()[0]==0
+    finally:unassume(c)
+
+def test_reviewer_read_only_on_merchants(pg):
+    c=pg["db"]
+    assume(c,pg["reviewer"],pg["org_a"])
+    try:
+        assert c.execute("SELECT count(*) FROM ms.merchants").fetchone()[0]==1
+        outcome=c.execute("UPDATE ms.merchants SET name='tampered' WHERE id=%s",(pg["m1"],))
+        assert outcome.rowcount==0
+    finally:unassume(c)
+
+def test_independent_reviewer_and_source_evidence_required(pg):
+    c=pg["db"]
+    rec_id=uuid4()
+    c.execute("INSERT INTO ms.recommendations(id,org_id,merchant_id,problem,action,created_by) VALUES(%s,%s,%s,%s,%s,%s)",
+              (rec_id,pg["org_a"],pg["m1"],"Missing product details","Test clearer descriptions",pg["analyst"]))
+    assume(c,pg["reviewer"],pg["org_a"])
+    try:
+        with pytest.raises(Exception):
+            c.execute("UPDATE ms.recommendations SET status='approved' WHERE id=%s",(rec_id,))
+    finally:unassume(c)
+    evidence_id=uuid4()
+    c.execute("INSERT INTO ms.evidence(id,org_id,merchant_id,platform,source_url,observed_at,created_by) VALUES(%s,%s,%s,%s,%s,now(),%s)",
+              (evidence_id,pg["org_a"],pg["m1"],"website","https://example.org/p",pg["analyst"]))
+    c.execute("INSERT INTO ms.recommendation_evidence(org_id,recommendation_id,evidence_id) VALUES(%s,%s,%s)",
+              (pg["org_a"],rec_id,evidence_id))
+    assume(c,pg["analyst"],pg["org_a"])
+    try:
+        with pytest.raises(Exception):
+            c.execute("UPDATE ms.recommendations SET status='approved' WHERE id=%s",(rec_id,))
+    finally:unassume(c)
+    assume(c,pg["reviewer"],pg["org_a"])
+    try:
+        outcome=c.execute("UPDATE ms.recommendations SET status='approved' WHERE id=%s",(rec_id,))
+        assert outcome.rowcount==1
+        assert c.execute("SELECT status::text FROM ms.recommendations WHERE id=%s",(rec_id,)).fetchone()[0]=="approved"
+    finally:unassume(c)
+
+def test_audit_is_not_user_writable(pg):
+    c=pg["db"]
+    assume(c,pg["analyst"],pg["org_a"])
+    try:
+        with pytest.raises(Exception):
+            c.execute("DELETE FROM ms.audit_events")
+        assert c.execute("SELECT count(*) FROM ms.audit_events").fetchone()[0]>0
+    finally:unassume(c)
+
+def test_runtime_cannot_read_accounts_or_sessions(pg):
+    c=pg["db"]
+    assume(c,pg["analyst"],pg["org_a"])
+    try:
+        with pytest.raises(Exception): c.execute("SELECT * FROM ms.user_accounts")
+        with pytest.raises(Exception): c.execute("SELECT * FROM ms.sessions")
+    finally:unassume(c)
+
+def test_user_session_and_tenant_transaction(pg):
+    from app.pg_identity import bootstrap_admin,login,resolve_session,revoke_session,tenant_transaction
+    from uuid import uuid4
+    dsn=os.environ["PG_TEST_DSN"]
+    suffix=uuid4().hex[:8]
+    details=bootstrap_admin(dsn,"Test Organization "+suffix,"test"+suffix+"@example.org","strong test password 12345")
+    tok=login(dsn,"test"+suffix+"@example.org","strong test password 12345",details["org_id"])
+    assert tok and len(tok)>30
+    assert login(dsn,"test"+suffix+"@example.org","wrong pass",details["org_id"]) is None
+    identity=resolve_session(dsn,tok)
+    assert str(identity["user_id"])==details["user_id"]
+    with tenant_transaction(dsn,identity) as db:
+        db.execute("INSERT INTO ms.merchants(org_id,name,normalized_name,city,created_by) VALUES(%s,%s,%s,%s,%s)",
+             (details["org_id"],"Sample Brand","sample brand","Sanaa",details["user_id"]))
+        assert db.execute("SELECT count(*) FROM ms.merchants").fetchone()[0]==1
+    assert revoke_session(dsn,tok)
+    assert resolve_session(dsn,tok) is None
+
+def test_secure_api_full_merchant_review_cycle(pg,monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin,hash_password
+    from uuid import uuid4
+    from datetime import datetime,timezone
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    email="analyst"+suffix+"@example.org"
+    details=bootstrap_admin(dsn,"Marketing "+suffix,email,"complex password string 123456")
+    reviewer=uuid4()
+    pg["db"].execute("INSERT INTO ms.user_accounts(id,email,password_hash) VALUES(%s,%s,%s)",
+         (reviewer,"reviewer"+suffix+"@example.org",hash_password("reviewer secret password 123456")))
+    pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
+         (details["org_id"],reviewer))
+    with TestClient(app) as c:
+        shell=c.get("/")
+        assert shell.status_code==200 and 'مرصد التجار' in shell.text
+        assert 'id="loginForm"' in shell.text
+        res=c.post("/api/v2/login",json={"email":email,"password":"complex password string 123456","org_id":details["org_id"]})
+        assert res.status_code==200,res.text
+        token=res.json()["access_token"]
+        H={"Authorization":"Bearer "+token}
+        assert c.get("/api/v2/me",headers=H).json()["role"]=="admin"
+        merchant=c.post("/api/v2/merchants",headers=H,json={"name":"المتجر التجريبي","city":"صنعاء","category":"تجزئة"})
+        assert merchant.status_code==201,merchant.text
+        mid=merchant.json()["id"]
+        for n in range(3):
+            at=datetime.now(timezone.utc).isoformat()
+            ev=c.post(f"/api/v2/merchants/{mid}/evidence",headers=H,json={"platform":"facebook","source_url":f"https://example.org/post/{n}","observed_at":at,"text":"منتج تجريبي"})
+            assert ev.status_code==201,ev.text
+        a=c.post(f"/api/v2/merchants/{mid}/analyze",headers=H)
+        assert a.status_code==200,a.text
+        assert len(a.json()["pending_recommendations"])>=1
+        rid=a.json()["pending_recommendations"][0]
+        assert c.post(f"/api/v2/recommendations/{rid}/review",headers=H,json={"decision":"approved","notes":"المراجعة"}).status_code==403
+        reviewer_token=c.post("/api/v2/login",json={"email":"reviewer"+suffix+"@example.org","password":"reviewer secret password 123456","org_id":details["org_id"]}).json()["access_token"]
+        R={"Authorization":"Bearer "+reviewer_token}
+        assert c.get("/api/v2/merchants",headers=R).status_code==200
+        assert c.post("/api/v2/merchants",headers=R,json={"name":"غير مسموح","city":"صنعاء"}).status_code==403
+        reviewed=c.post(f"/api/v2/recommendations/{rid}/review",headers=R,json={"decision":"approved","notes":"فحص الأدلة"})
+        assert reviewed.status_code==200,reviewed.text
+        assert c.get("/api/v2/merchants",headers=H).json()["merchants"]
+        assert c.post("/api/v2/logout",headers=H).json()["revoked"] is True
+        assert c.get("/api/v2/me",headers=H).status_code==401
+
+def test_admin_can_provision_independent_reviewer_offline(pg):
+    from app.pg_users import create_user
+    from app.pg_identity import login, resolve_session
+    from uuid import uuid4
+    dsn=os.environ["PG_TEST_DSN"]
+    suffix=uuid4().hex[:8]
+    admin_org=uuid4()
+    pg["db"].execute("INSERT INTO ms.organizations(id,name) VALUES(%s,%s)",(admin_org,"Provision Test "+suffix))
+    email="reviewer"+suffix+"@example.org"
+    identity=create_user(dsn,str(admin_org),email,"strong distinct password 1234","reviewer")
+    assert identity["role"]=="reviewer"
+    assert identity["org_id"]==str(admin_org)
+    token=login(dsn,email,"strong distinct password 1234",str(admin_org))
+    assert token
+    resolved=resolve_session(dsn,token)
+    assert str(resolved["role"])=="reviewer"
+    with pytest.raises(ValueError):
+        create_user(dsn,str(admin_org),email,"another password string 1234","analyst")
+    with pytest.raises(ValueError):
+        create_user(dsn,str(admin_org),"bad-email","strong password string 1234","analyst")
+
+def test_secure_portfolio_is_tenant_scoped_and_missing_scores_nullable(pg,monkeypatch):
+    from uuid import uuid4
+    from app.pg_identity import bootstrap_admin
+    from app.pg_api import app
+    from fastapi.testclient import TestClient
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    info=bootstrap_admin(dsn,"Scoped Reporting "+suffix,"report"+suffix+"@example.org","high entropy password 12345")
+    with TestClient(app) as client:
+        result=client.post("/api/v2/login",json={"email":"report"+suffix+"@example.org","password":"high entropy password 12345","org_id":info["org_id"]})
+        assert result.status_code==200,result.text
+        headers={"Authorization":"Bearer "+result.json()["access_token"]}
+        empty=client.get("/api/v2/reports/portfolio",headers=headers)
+        assert empty.status_code==200,empty.text
+        assert empty.json()["merchant_count"]==0
+        assert empty.json()["average_observed_score"] is None
+        assert client.get("/api/v2/reports/portfolio").status_code==401
+        created=client.post("/api/v2/merchants",headers=headers,json={"name":"مصنع نموذجي","city":"صنعاء","category":"أغذية"})
+        assert created.status_code==201,created.text
+        portfolio=client.get("/api/v2/reports/portfolio?city=صنعاء",headers=headers)
+        assert portfolio.status_code==200,portfolio.text
+        data=portfolio.json()
+        assert data["merchant_count"]==1
+        assert data["without_usable_score"]==1
+        assert data["merchants"][0]["name"]=="مصنع نموذجي"
+        assert data["merchants"][0]["score"] is None
+        other=client.get("/api/v2/reports/portfolio?city=تعز",headers=headers)
+        assert other.json()["merchant_count"]==0
+
+def test_secure_sales_pipeline_requires_independent_outreach_approval(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin,hash_password
+    from fastapi.testclient import TestClient
+    from datetime import datetime,timezone
+    from uuid import uuid4
+    suffix=uuid4().hex[:9]
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    admin_email="pipeline"+suffix+"@example.org"
+    info=bootstrap_admin(dsn,"Pipeline "+suffix,admin_email,"admin password for test 12345")
+    reviewer_email="pipeline-reviewer"+suffix+"@example.org"
+    user=uuid4()
+    pg["db"].execute("INSERT INTO ms.user_accounts(id,email,password_hash) VALUES(%s,%s,%s)",
+            (user,reviewer_email,hash_password("reviewer password for test 12345")))
+    pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",(info["org_id"],user))
+    with TestClient(app) as c:
+        def login(email,password):
+            resp=c.post("/api/v2/login",json={"email":email,"password":password,"org_id":info["org_id"]})
+            assert resp.status_code==200,resp.text
+            return {"Authorization":"Bearer "+resp.json()["access_token"]}
+        admin=login(admin_email,"admin password for test 12345")
+        reviewer=login(reviewer_email,"reviewer password for test 12345")
+        m=c.post("/api/v2/merchants",headers=admin,json={"name":"متجر الفرص","city":"صنعاء"})
+        assert m.status_code==201,m.text
+        mid=m.json()["id"]
+        response=c.get("/api/v2/opportunities",headers=admin)
+        assert response.status_code==200,response.text
+        assert response.json()["opportunities"][0]["opportunity_score"] is None
+        lead=c.post(f"/api/v2/merchants/{mid}/lead",headers=admin,json={"stage":"qualified"})
+        assert lead.status_code==200,lead.text
+        denied=c.post(f"/api/v2/merchants/{mid}/lead",headers=admin,json={"stage":"contacted"})
+        assert denied.status_code==403,denied.text
+        assert c.post(f"/api/v2/merchants/{mid}/outreach-approval",headers=admin,json={"approved":True}).status_code==403
+        approved=c.post(f"/api/v2/merchants/{mid}/outreach-approval",headers=reviewer,json={"approved":True})
+        assert approved.status_code==200,approved.text
+        assert approved.json()["outreach_approved"] is True
+        contacted=c.post(f"/api/v2/merchants/{mid}/lead",headers=admin,json={"stage":"contacted"})
+        assert contacted.status_code==200,contacted.text
+        assert contacted.json()["stage"]=="contacted"
+        assert c.get(f"/api/v2/merchants/{mid}/proposal",headers=admin).json()["status"]=="not_ready"
+
+def test_secure_competitor_comparison_is_tenant_isolated(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    suffix=uuid4().hex[:8]
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    identity=bootstrap_admin(dsn,"Comparison "+suffix,"compare"+suffix+"@example.org","complex test password 12345")
+    with TestClient(app) as c:
+        auth=c.post("/api/v2/login",json={"email":"compare"+suffix+"@example.org","password":"complex test password 12345","org_id":identity["org_id"]})
+        assert auth.status_code==200,auth.text
+        headers={"Authorization":"Bearer "+auth.json()["access_token"]}
+        ids=[]
+        for name in ("تاجر أ","تاجر ب"):
+            resp=c.post("/api/v2/merchants",headers=headers,json={"name":name,"city":"صنعاء"})
+            assert resp.status_code==201,resp.text
+            ids.append(resp.json()["id"])
+        result=c.get("/api/v2/compare?ids="+",".join(ids),headers=headers)
+        assert result.status_code==200,result.text
+        assert len(result.json()["results"])==2
+        assert all(x["score"] is None for x in result.json()["results"])
+        assert c.get("/api/v2/compare?ids="+ids[0],headers=headers).status_code==422
+        assert c.get("/api/v2/compare?ids="+",".join(ids)).status_code==401
+        # Merchant from a different organization must never be returned.
+        foreign=c.get("/api/v2/compare?ids="+ids[0]+","+str(pg["m1"]),headers=headers)
+        assert foreign.status_code==404
+
+def test_secure_osm_import_requires_human_confirmation_and_tenant_permissions(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin,hash_password
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    from app import osm
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    email="osm"+suffix+"@example.org"
+    info=bootstrap_admin(dsn,"OSM "+suffix,email,"strong OSM password 123456")
+    reviewer_id=uuid4()
+    pg["db"].execute("INSERT INTO ms.user_accounts(id,email,password_hash) VALUES(%s,%s,%s)",
+        (reviewer_id,"osmreview"+suffix+"@example.org",hash_password("reviewer password 123456")))
+    pg["db"].execute("INSERT INTO ms.memberships(org_id,user_id,role) VALUES(%s,%s,'reviewer')",
+        (info["org_id"],reviewer_id))
+    monkeypatch.setattr(osm,"discover",lambda *a:{"results":[{"name":"شركة البحر","category":"shop","source_url":"https://www.openstreetmap.org/node/321"}],"attribution":osm.ATTRIBUTION})
+    with TestClient(app) as c:
+        def token(email,password):
+            r=c.post("/api/v2/login",json={"email":email,"password":password,"org_id":info["org_id"]})
+            assert r.status_code==200,r.text
+            return {"Authorization":"Bearer "+r.json()["access_token"]}
+        H=token(email,"strong OSM password 123456")
+        R=token("osmreview"+suffix+"@example.org","reviewer password 123456")
+        found=c.post("/api/v2/discovery/osm",headers=H,json={"lat":15.3,"lon":44.2,"radius_m":1200,"category":"shop"})
+        assert found.status_code==200,found.text
+        assert len(found.json()["results"])==1
+        body={"confirm":True,"merchants":[{"name":"شركة البحر","city":"صنعاء","category":"متجر","source_url":"https://www.openstreetmap.org/node/321"}]}
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json={**body,"confirm":False}).status_code==422
+        assert c.post("/api/v2/discovery/osm/commit",headers=R,json=body).status_code==403
+        approved=c.post("/api/v2/discovery/osm/commit",headers=H,json=body)
+        assert approved.status_code==200,approved.text
+        assert approved.json()["imported"]==1
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json=body).json()["imported"]==0
+        bad={**body,"merchants":[{**body["merchants"][0],"source_url":"https://evil.example/node/9"}]}
+        assert c.post("/api/v2/discovery/osm/commit",headers=H,json=bad).status_code==422
+
+
+def test_secure_source_url_rejects_private_targets_and_control_characters():
+    """URL metadata must not accept internal hosts or header/control injection."""
+    from fastapi import HTTPException
+    from app.pg_api import valid_url
+    for candidate in (
+        "http://127.0.0.1/admin",
+        "http://10.0.0.1/private",
+        "http://[::1]/",
+        "http://localhost:8000/",
+        "https://service.internal/path",
+        "https://example.org/path\r\nInjected: yes",
+        "https://example.org/" + "x" * 2100,
+        "https://example.org/path#fragment",
+    ):
+        with pytest.raises(HTTPException) as exc:
+            valid_url(candidate)
+        assert exc.value.status_code == 422
+    assert valid_url("https://www.openstreetmap.org/node/321") == "https://www.openstreetmap.org/node/321"
+
+
+def test_disabled_account_and_expired_session_cannot_access_tenant(pg):
+    """P0 regression: DB-side account disable and expiry invalidate existing bearer tokens."""
+    from app.pg_identity import bootstrap_admin, login, resolve_session
+    from uuid import uuid4
+    dsn = os.environ["PG_TEST_DSN"]
+    suffix = uuid4().hex[:10]
+    email = f"disabled-{suffix}@example.org"
+    info = bootstrap_admin(dsn, "Session revocation " + suffix, email, "long synthetic password 12345")
+    token = login(dsn, email, "long synthetic password 12345", info["org_id"])
+    assert token and resolve_session(dsn, token)
+    pg["db"].execute(
+        "UPDATE ms.user_accounts SET disabled_at=now() WHERE id=%s",
+        (info["user_id"],),
+    )
+    assert resolve_session(dsn, token) is None
+    assert login(dsn, email, "long synthetic password 12345", info["org_id"]) is None
+
+    second = f"expired-{suffix}@example.org"
+    other = bootstrap_admin(dsn, "Expiry test " + suffix, second, "another synthetic password 12345")
+    expired_token = login(dsn, second, "another synthetic password 12345", other["org_id"])
+    assert expired_token and resolve_session(dsn, expired_token)
+    from app.pg_identity import token_hash
+    pg["db"].execute(
+        "UPDATE ms.sessions SET expires_at=now()-interval '1 second' WHERE token_hash=%s",
+        (token_hash(expired_token),),
+    )
+    assert resolve_session(dsn, expired_token) is None
+
+
+def test_research_candidate_intake_independent_review_and_promote(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from app.pg_users import create_user
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    from datetime import date
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    suffix=uuid4().hex[:8]
+    admin_email=f"research-{suffix}@example.org"
+    org=bootstrap_admin(dsn,"Research "+suffix,admin_email,"Strong synthetic password 456")
+    reviewer_email=f"research-review-{suffix}@example.org"
+    create_user(dsn,org["org_id"],reviewer_email,"Different strong password 789","reviewer")
+    with TestClient(app) as client:
+        def auth(email,password):
+            r=client.post("/api/v2/login",json={"email":email,"password":password,"org_id":org["org_id"]})
+            assert r.status_code==200,r.text
+            return {"Authorization":"Bearer "+r.json()["access_token"]}
+        admin=auth(admin_email,"Strong synthetic password 456")
+        reviewer=auth(reviewer_email,"Different strong password 789")
+        record={"name":"مخبز عينة بحث","city":"صنعاء","category":"مخبوزات",
+                "source_url":"https://happynew.day/vendor/sample-synthetic-bakery",
+                "source_kind":"public_directory_listing","observed_on":date.today().isoformat()}
+        payload={"confirm":True,"records":[record]}
+        assert client.post("/api/v2/research/candidates/import",json=payload).status_code==401
+        assert client.post("/api/v2/research/candidates/import",headers=admin,json={**payload,"confirm":False}).status_code==422
+        assert client.post("/api/v2/research/candidates/import",headers=reviewer,json=payload).status_code==403
+        inserted=client.post("/api/v2/research/candidates/import",headers=admin,json=payload)
+        assert inserted.status_code==200,inserted.text
+        assert inserted.json()["inserted"]==1
+        assert inserted.json()["outreach_permitted"] is False
+        candidate_id=inserted.json()["ids"][0]
+        again=client.post("/api/v2/research/candidates/import",headers=admin,json=payload)
+        assert again.status_code==200 and again.json()["inserted"]==0
+        assert len(again.json()["duplicates"])==1
+        viewed=client.get("/api/v2/research/candidates?status=unverified",headers=reviewer)
+        assert viewed.status_code==200 and any(str(x["id"])==candidate_id for x in viewed.json()["candidates"])
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=admin).status_code==409
+        decision={"decision":"reviewed","notes":"تمت مراجعة رابط القائمة؛ لا موافقة على التواصل"}
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/review",headers=admin,json=decision).status_code==403
+        approval=client.post(f"/api/v2/research/candidates/{candidate_id}/review",headers=reviewer,json=decision)
+        assert approval.status_code==200,approval.text
+        assert approval.json()["status"]=="reviewed"
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/review",headers=reviewer,json=decision).status_code==404
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=reviewer).status_code==403
+        promotion=client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=admin)
+        assert promotion.status_code==200,promotion.text
+        merchant_id=promotion.json()["merchant_id"]
+        assert promotion.json()["analysis_status"]=="not_assessed"
+        assert promotion.json()["outreach_approved"] is False
+        assert client.post(f"/api/v2/research/candidates/{candidate_id}/promote?confirm=true",headers=admin).status_code==409
+        detail=client.get(f"/api/v2/merchants/{merchant_id}",headers=admin).json()
+        assert detail["evidence"]==[]
+        with pg["db"].cursor() as cursor:
+            cursor.execute("SELECT url,platform FROM ms.channels WHERE merchant_id=%s",(merchant_id,))
+            row=cursor.fetchone()
+            assert row[0]==record["source_url"] and row[1]=="directory_listing"
+            cursor.execute("SELECT action,entity FROM ms.audit_events WHERE entity='research_candidates' AND org_id=%s",(org["org_id"],))
+            assert len(cursor.fetchall())>=3
+
+
+def test_research_source_validation_and_cross_tenant_access(pg,monkeypatch):
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    from datetime import date
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    names=[]
+    for n in range(2):
+        suffix=uuid4().hex[:8]
+        email=f"candidate-tenant-{suffix}@example.org"
+        o=bootstrap_admin(dsn,"Tenant "+suffix,email,"Synthetic complex password 123")
+        names.append((o,email))
+    with TestClient(app) as client:
+        tokens=[]
+        for info,email in names:
+            r=client.post("/api/v2/login",json={"email":email,"password":"Synthetic complex password 123","org_id":info["org_id"]})
+            assert r.status_code==200,r.text
+            tokens.append({"Authorization":"Bearer "+r.json()["access_token"]})
+        record={"name":"متجر فحص","city":"صنعاء","category":"تجزئة",
+                "source_url":"https://happynew.day/vendor/synthetic",
+                "observed_on":date.today().isoformat()}
+        bad=client.post("/api/v2/research/candidates/import",headers=tokens[0],json={
+           "confirm":True,"records":[{**record,"source_url":"http://localhost/private"}]})
+        assert bad.status_code==422
+        valid=client.post("/api/v2/research/candidates/import",headers=tokens[0],json={"confirm":True,"records":[record]})
+        assert valid.status_code==200,valid.text
+        cid=valid.json()["ids"][0]
+        other=client.get("/api/v2/research/candidates",headers=tokens[1])
+        assert other.status_code==200 and other.json()["count"]==0
+        assert client.post(f"/api/v2/research/candidates/{cid}/review",headers=tokens[1],json={
+            "decision":"reviewed","notes":"This candidate belongs to another organization"}).status_code==404
+        assert client.post(f"/api/v2/research/candidates/{cid}/promote?confirm=true",headers=tokens[1]).status_code==404
+
+def test_full_30_sanaa_source_manifest_stages_without_merchant_or_contact_effect(pg,monkeypatch):
+    import json
+    from app.pg_api import app
+    from app.pg_identity import bootstrap_admin
+    from fastapi.testclient import TestClient
+    from uuid import uuid4
+    dsn=os.environ["PG_TEST_DSN"]
+    monkeypatch.setenv("MERCHANTSCOPE_AUTH_DSN",dsn)
+    monkeypatch.setenv("MERCHANTSCOPE_DATA_DSN",dsn)
+    source=json.loads((Path(__file__).parents[1]/"research"/"sanaa_30_candidates_2026-11-19.json").read_text(encoding="utf-8"))
+    assert len(source["records"])==30
+    suffix=uuid4().hex[:8]
+    email="sanaa-pilot-"+suffix+"@example.org"
+    org=bootstrap_admin(dsn,"Sanaa Pilot "+suffix,email,"Sanaa staging password 123456")
+    with TestClient(app) as client:
+        login=client.post("/api/v2/login",json={
+           "email":email,"password":"Sanaa staging password 123456","org_id":org["org_id"]})
+        assert login.status_code==200,login.text
+        headers={"Authorization":"Bearer "+login.json()["access_token"]}
+        records=[{"name":item["name"],"city":item["city"],"category":item["category"],
+                  "source_url":item["source_url"],"source_kind":item["source_kind"],
+                  "observed_on":source["collected_on"]} for item in source["records"]]
+        result=client.post("/api/v2/research/candidates/import",headers=headers,
+                           json={"confirm":True,"records":records})
+        assert result.status_code==200,result.text
+        assert result.json()["inserted"]==30
+        assert result.json()["status"]=="unverified"
+        staged=client.get("/api/v2/research/candidates?status=unverified",headers=headers)
+        assert staged.status_code==200
+        assert staged.json()["count"]==30
+        assert all(x["status"]=="unverified" and x["promoted_merchant_id"] is None
+                   for x in staged.json()["candidates"])
+        assert client.get("/api/v2/merchants",headers=headers).json()["merchants"]==[]
+        assert client.get("/api/v2/opportunities",headers=headers).json()["opportunities"]==[]
+        again=client.post("/api/v2/research/candidates/import",headers=headers,
+                          json={"confirm":True,"records":records})
+        assert again.status_code==200 and again.json()["inserted"]==0
+        assert len(again.json()["duplicates"])==30
+
+
+def test_authentication_functions_not_callable_by_runtime_or_public(pg):
+    """Fail closed if an auth migration accidentally exposes credential/session lookups."""
+    c = pg["db"]
+    functions = ("ms.login_account(text,uuid)", "ms.lookup_session(bytea)")
+    for signature in functions:
+        # PUBLIC has no EXECUTE; the tenant runtime must not acquire it either.
+        assert c.execute(
+            "SELECT has_function_privilege('merchant_runtime', %s, 'EXECUTE')",
+            (signature,),
+        ).fetchone()[0] is False, signature
+        assert c.execute(
+            "SELECT has_function_privilege('merchant_auth', %s, 'EXECUTE')",
+            (signature,),
+        ).fetchone()[0] is True, signature
+        assert c.execute(
+            """SELECT NOT EXISTS (
+                 SELECT 1 FROM pg_proc p
+                 CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                 WHERE p.oid = %s::regprocedure AND a.grantee = 0
+                   AND a.privilege_type = 'EXECUTE'
+               )""",
+            (signature,),
+        ).fetchone()[0] is True, signature
+    assume(c, pg["analyst"], pg["org_a"])
+    try:
+        with pytest.raises(Exception):
+            c.execute("SELECT * FROM ms.login_account('nobody@example.org', %s)", (pg["org_a"],))
+        with pytest.raises(Exception):
+            c.execute("SELECT * FROM ms.lookup_session(%s)", (bytes(32),))
+    finally:
+        unassume(c)

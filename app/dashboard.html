@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مرصد التجار | MerchantScope</title>
+<style>
+:root{font-family:system-ui,Tahoma,Arial,sans-serif;color:#152d40;background:#f5f7f8}*{box-sizing:border-box}body{margin:0}header{background:#103047;color:#fff;padding:18px 3%;display:flex;justify-content:space-between;gap:12px;align-items:center}header h1{font-size:23px;margin:0}header p{margin:4px 0 0;color:#b7d0d8;font-size:12px}input,textarea,select,button{font:inherit;border:1px solid #cbd8de;border-radius:8px;padding:9px}input,textarea,select{background:white;color:#173248;max-width:100%}textarea{min-height:70px}button{background:#087d82;color:white;border:0;cursor:pointer}button.secondary{background:#e5f2f2;color:#15555a}button.danger{background:#ac4540}button:hover{filter:brightness(.96)}button:disabled{opacity:.5}main{max-width:1440px;margin:auto;padding:22px}nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}nav button{background:#e3ecee;color:#183f51}nav button.active{background:#103047;color:#fff}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card,section{background:#fff;border:1px solid #e1e9ee;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 3px 16px #193c4d0a}.card strong{font-size:25px;display:block;color:#073e5a}.muted,small{color:#607a8d;font-size:12px}h2{font-size:20px}h3{font-size:16px;margin:12px 0}.stack{display:grid;gap:8px}.flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.item{border:1px solid #dae8eb;border-radius:9px;padding:12px;margin:8px 0;overflow-wrap:anywhere}.chip{padding:2px 9px;background:#e4f2f2;border-radius:15px;font-size:12px}.hidden{display:none!important}a{color:#067d84}#notice{white-space:pre-wrap;min-height:20px}.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%}td,th{text-align:right;border-bottom:1px solid #e5ecef;padding:10px;vertical-align:top}th{background:#f2f7f8}.controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.controls>*{width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere;direction:ltr;text-align:left;font-size:12px;background:#f3f6f8;padding:10px;border-radius:8px}fieldset{border:1px solid #e5eded;border-radius:9px;padding:12px}label{font-size:13px;color:#3b596d;display:block;margin-bottom:4px}@media(max-width:850px){.cards,.grid{grid-template-columns:1fr 1fr}.controls{grid-template-columns:1fr 1fr}}@media(max-width:600px){header{display:block}header input{margin-top:10px;width:100%}.cards,.grid,.controls{grid-template-columns:1fr}}@media print{header,nav,.no-print,button,form,#notice{display:none!important}main{max-width:none}section,.card{box-shadow:none;break-inside:avoid}}
+/* MerchantScope visual identity — professional RTL SaaS dashboard */
+:root{--ms-navy:#102f45;--ms-ink:#16394b;--ms-teal:#087f80;--ms-line:#dce9ed;--ms-bg:#f3f7f8;--ms-muted:#607989}
+body{background:var(--ms-bg);color:var(--ms-ink);line-height:1.7}
+header{position:sticky;top:0;z-index:15;background:linear-gradient(115deg,#102d46,#164858);box-shadow:0 7px 24px #10304717;border-bottom:3px solid #23a6a3}
+header h1{font-size:26px;letter-spacing:-.5px;font-weight:750}
+header input{background:#f8fcfd;min-width:200px}
+main{padding:24px clamp(12px,3vw,34px)}
+nav{background:#fff;padding:10px;border:1px solid var(--ms-line);box-shadow:0 4px 24px #10304709;border-radius:16px;position:sticky;top:90px;z-index:12}
+nav button{transition:background .15s,box-shadow .15s;color:#294f60;font-weight:650;padding:11px 14px}
+nav button.active{background:#123e53;box-shadow:0 3px 12px #123e5328}
+button{font-weight:650;transition:transform .15s,filter .15s;min-height:38px}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #24acae;outline-offset:2px}
+button:hover:not(:disabled){transform:translateY(-1px)}
+.card,section{border:1px solid var(--ms-line);border-radius:16px;box-shadow:0 3px 24px #123e5309}
+.card{min-height:110px;padding:20px;background:linear-gradient(160deg,#fff,#f7fcfc)}
+.card strong{color:#0d5866;font-size:30px;font-variant-numeric:tabular-nums}
+.panel h2{margin-top:0}
+.grid{gap:18px}
+.eyebrow{letter-spacing:2px;font-size:10px;color:#087d82;font-weight:800;margin:0 0 2px}
+.report-header{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;background:linear-gradient(105deg,#fff,#edf8f8)}
+.chart-card{padding:18px;border-radius:12px;background:#f8fbfc;border:1px solid #e2ebee;min-width:0}
+.chart-row{display:grid;grid-template-columns:minmax(105px,1fr) minmax(60px,3fr) 40px;align-items:center;gap:10px;margin:12px 0;font-size:12px}
+.chart-track{height:12px;background:#e1ebed;border-radius:20px;overflow:hidden}
+.chart-bar{height:100%;background:linear-gradient(90deg,#168d91,#38b9a5);border-radius:20px}
+#reportKpis{margin:20px 0}
+#reportKpis .card small{display:block}
+.panel{min-height:55vh}
+.item{background:#fbfdfd;border-color:#dae7e9}
+@media (max-width:750px){header{position:static}nav{position:static;overflow-x:auto;display:flex;flex-wrap:nowrap}nav button{white-space:nowrap}.chart-row{grid-template-columns:minmax(80px,1fr) minmax(60px,2fr) 30px}.report-header{display:block}}
+@media print{header,nav,.no-print{display:none!important}.panel{display:none!important}#reports{display:block!important}#reports section{border:0;padding:8px;box-shadow:none}body{background:#fff}.grid{grid-template-columns:1fr 1fr}.cards{grid-template-columns:repeat(4,1fr)}.card{min-height:auto}#reportCaveat{font-size:10px;color:black}}
+
+@media print{
+  body.print-merchant #reports{display:none!important}
+  body.print-merchant #merchants{display:block!important}
+  body.print-merchant #merchants > .grid{display:none!important}
+  body.print-merchant #dossier{display:block!important}
+  body.print-merchant #dossier form,body.print-merchant #dossier input{display:none!important}
+  body.print-portfolio #reports{display:block!important}
+  body.print-portfolio #merchants{display:none!important}
+}
+</style></head><body>
+<header><div><h1>◈ مرصد التجار</h1><p>استخبارات تسويقية قائمة على الأدلة | نسخة اختبار محلية غير مخصصة للنشر العام</p></div><div class="flex"><input type="password" id="secret" placeholder="مفتاح المحلل (لا يحفظ)" autocomplete="off"><input type="password" id="reviewerSecret" placeholder="مفتاح المراجع المستقل" autocomplete="off"></div></header>
+<main><p id="notice" class="muted">أدخل مفتاح الإدارة، ثم اضغط «تحديث».</p>
+<nav class="no-print" id="nav">
+<button class="active" data-tab="overview">الرئيسية</button><button data-tab="merchants">التجار والأدلة</button><button data-tab="market">السوق والمنافسون</button><button data-tab="opportunities">الفرص البيعية</button><button data-tab="review">المراجعة والاعتماد</button><button data-tab="reports">التقارير والتحليلات</button><button data-tab="sources">المصادر والحوكمة</button><button id="reload">تحديث</button>
+</nav>
+<div id="overview" class="panel"><div id="metrics" class="cards"></div><section><h2>دورة عمل الوكيل</h2><p>تسجيل التاجر ← توثيق روابط الحسابات والمنشورات ← تقييم مشروط بكفاية الأدلة ← اكتشاف فجوات ← توصيات للمراجعة ← تقرير ومقارنة بالسوق ← موافقة بشرية قبل التواصل.</p><p class="muted">لا يوجد جمع تلقائي من المنصات أو إرسال رسائل؛ النتائج غير المتاحة تعرض صراحةً بدل اختلاق أرقام.</p></section></div>
+<div id="merchants" class="panel hidden">
+<div class="grid"><section><h2>إضافة تاجر</h2><form id="merchantForm" class="stack">
+<input name="name" required minlength="2" placeholder="اسم التاجر"><input name="city" required placeholder="المدينة"><input name="category" placeholder="النشاط التجاري"><input name="governorate" placeholder="المحافظة"><input name="market" placeholder="السوق"><input name="website" type="url" placeholder="https:// الموقع"><input name="public_contact" placeholder="بيانات اتصال تجارية منشورة"><button>حفظ</button></form></section>
+<section><h2>سجل التجار</h2><input id="search" placeholder="البحث بالاسم" style="width:100%"><div id="merchantList"></div><button class="secondary" id="export">تصدير CSV</button></section></div>
+<section id="dossier"><p class="muted">اختر تاجراً لعرض ملف الأدلة والتحليل والمراجعة.</p></section></div>
+<div id="market" class="panel hidden"><section><h2>تحليل السوق والعينة</h2><div class="flex"><input id="marketCity" placeholder="مدينة (اختياري)"><input id="marketCategory" placeholder="نشاط (اختياري)"><button id="marketRun">تحليل العينة</button></div><p class="muted">النتائج تصف التجار المسجلين في النظام فقط، وليست تقديراً لحصة السوق.</p><div id="marketResult"></div></section><section><h2>مقارنة التجار</h2><div class="flex"><input id="compareIds" placeholder="أرقام التجار، مثال: 1,2" style="min-width:240px"><button id="compareRun">مقارنة</button></div><div id="comparison"></div></section></div>
+<div id="opportunities" class="panel hidden"><section><h2>ترتيب الفرص البيعية</h2><p class="muted">درجة داخلية للتوجيه فقط؛ ليست احتمال نجاح البيع أو توقع الإيراد.</p><div id="opportunityList"></div></section></div>
+<div id="review" class="panel hidden"><section><h2>التوصيات التي تنتظر الموافقة</h2><p class="muted">راجع المصدر بنفسك واكتب سبب القرار. لا يمكن اعتماد التوصية مرتين.</p><div id="reviewList"></div></section>
+<section><h2>التوصيات المطلوب تعديلها</h2><p class="muted">يستطيع المحلل تعديل التوصية وإعادة تقديمها للمراجع. يحتفظ سجل التدقيق بالنسخة السابقة وملاحظات المراجع.</p><div id="revisionList"></div></section></div>
+<div id="reports" class="panel hidden">
+  <section class="report-header">
+    <div><p class="eyebrow">INTELLIGENCE REPORTS</p><h2>التقارير والتحليلات التسويقية</h2>
+    <p class="muted">تقرير قابل للمراجعة، يفرق بين الحقائق المرصودة والبيانات غير المتوفرة. لا يمثل تعداد السوق.</p></div>
+    <div class="flex no-print"><button class="secondary" id="reportPrint">طباعة / حفظ PDF</button><button id="reportJson" class="secondary">تصدير بيانات التقرير JSON</button></div>
+  </section>
+  <section>
+    <div class="controls no-print">
+      <label>المدينة<input id="reportCity" placeholder="كل المدن"></label>
+      <label>النشاط<input id="reportCategory" placeholder="كل الأنشطة"></label>
+      <div class="flex" style="align-self:end"><button id="reportRun">إنشاء التقرير</button></div>
+    </div>
+    <small id="reportMeta">اختر إنشاء التقرير بعد إدخال مفتاح المستخدم.</small>
+    <div id="reportKpis" class="cards" aria-live="polite"></div>
+    <div class="grid">
+      <article class="chart-card"><h3>حالة مراجعة التوصيات</h3><div id="reviewChart" role="img" aria-label="توزيع حالة مراجعة التوصيات"></div></article>
+      <article class="chart-card"><h3>مراحل الفرص البيعية</h3><div id="leadChart" role="img" aria-label="توزيع مراحل العملاء المحتملين"></div></article>
+    </div>
+    <h3>التجار المدرجون في التقرير</h3>
+    <div class="scroll"><table><thead><tr><th>التاجر</th><th>المدينة</th><th>الأدلة</th><th>التقييم</th><th>التغطية</th><th>توصيات تنتظر</th><th>معتمدة</th></tr></thead><tbody id="reportRows"></tbody></table></div>
+    <p class="muted" id="reportCaveat"></p>
+  </section>
+</div>
+<div id="sources" class="panel hidden"><div class="grid"><section><h2>استيراد CSV (فحص التكرار)</h2><p class="muted">معاينة فقط، لا تُدخل سجلات تلقائياً قبل التحقق البشري.</p><form id="csvForm" class="stack"><input type="file" name="file" accept=".csv,text/csv" required><button>فحص الملف</button></form><pre id="csvOut"></pre></section><section><h2>المهارات التسويقية</h2><p class="muted">فهرس مهارات مرجعي. لم يتم تنزيل أو تنفيذ كود خارجي تلقائياً.</p><div id="skills"></div></section></div><section><h2>اكتشاف التجار عبر OpenStreetMap</h2><p class="muted">بحث محدود ضمن نطاق جغرافي. نتائج المصدر قد تكون قديمة أو ناقصة؛ لا يجري إدخالها إلا بعد المعاينة والاعتماد.</p>
+<form id="osmForm" class="controls no-print">
+<label>خط العرض<input name="lat" type="number" step="any" min="-90" max="90" required placeholder="15.369"></label>
+<label>خط الطول<input name="lon" type="number" step="any" min="-180" max="180" required placeholder="44.191"></label>
+<label>المدينة<input name="city" required placeholder="صنعاء"></label>
+<label>نصف القطر بالمتر<input name="radius_m" type="number" min="100" max="3000" value="1200" required></label>
+<label>الفئة<select name="category"><option value="shop">محلات تجارية</option><option value="restaurant">مطاعم</option><option value="cafe">مقاهٍ</option><option value="pharmacy">صيدليات</option></select></label>
+<button>بحث في البيانات المفتوحة</button>
+</form>
+<div id="osmResults"></div>
+<p class="muted"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors — ODbL</a>. لا تتوفر دقة أو تغطية مضمونة. الاستخدام الكثيف يحتاج خدمة بيانات مخصصة.</p></section>
+<section><h2>سجل التدقيق</h2><button id="auditRun">تحميل العمليات</button><pre id="auditOut"></pre></section></div>
+</main><script>
+'use strict';
+const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let traders=[],pending=[],selected=0;
+function notice(t,bad=false){$('notice').textContent=t;$('notice').style.color=bad?'#ae453c':'#087d82'}
+async function request(path,method='GET',body,role='analyst'){let headers={'X-Admin-Token':role==='reviewer' ? ($('reviewerSecret').value || $('secret').value) : $('secret').value};if(body&&!(body instanceof FormData))headers['Content-Type']='application/json';
+const res=await fetch('/api'+path,{method,headers,body:body instanceof FormData?body:body?JSON.stringify(body):undefined});
+if(!res.ok){let txt=await res.text();throw Error(res.status+': '+txt.slice(0,300))}return res.json()}
+async function handle(fn){try{await fn()}catch(e){notice(e.message,true)}}
+async function reload(){await handle(async()=>{const [m,r,stats]=await Promise.all([request('/merchants'),request('/reviews'),request('/overview')]);traders=m;pending=r;
+$('metrics').innerHTML=Object.entries({التجار:stats.merchants,'الأدلة':stats.evidence,'تقييمات':stats.assessments,'بانتظار المراجعة':stats.pending_reviews,'التوصيات المعتمدة':stats.approved_recommendations,'فرص البيع':stats.leads}).map(([k,v])=>'<div class="card"><small>'+esc(k)+'</small><strong>'+esc(v)+'</strong></div>').join('');
+renderMerchants();renderReviews();notice('تم التحديث. جميع النتائج تعتمد على البيانات المسجلة فقط.');})}
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('.panel').forEach(p=>p.classList.add('hidden'));$(b.dataset.tab).classList.remove('hidden');document.querySelectorAll('[data-tab]').forEach(x=>x.classList.remove('active'));b.classList.add('active');if(b.dataset.tab==='opportunities')opportunities();if(b.dataset.tab==='market')market();if(b.dataset.tab==='sources')skills()});
+$('reload').onclick=reload;$('search').oninput=renderMerchants;
+function renderMerchants(){let q=$('search').value;let list=traders.filter(x=>x.name.includes(q));$('merchantList').innerHTML=list.map(m=>'<button class="secondary" style="display:block;width:100%;text-align:right;margin:5px 0" data-merchant="'+m.id+'">'+esc(m.name)+' — '+esc(m.city)+' <small>'+esc(m.category||'غير مصنف')+'</small></button>').join('')||'<p class="muted">لا يوجد تجار.</p>';document.querySelectorAll('[data-merchant]').forEach(b=>b.onclick=()=>showMerchant(Number(b.dataset.merchant)))}
+$('merchantForm').onsubmit=e=>{e.preventDefault();handle(async()=>{await request('/merchants','POST',Object.fromEntries(new FormData(e.target)));e.target.reset();await reload()})};
+async function showMerchant(id){await handle(async()=>{selected=id;let m=await request('/merchants/'+id),a=m.assessments[0]?JSON.parse(m.assessments[0].result):null;
+const E=x=>esc(x),list=m.evidence.map(x=>'<div class="item"><a rel="noopener noreferrer" target="_blank" href="'+E(x.source_url)+'">'+E(x.source_url)+'</a><small> '+E(x.observed_at)+' / '+E(x.platform)+'</small><p>'+E(x.text||'')+'</p></div>').join('')||'<p class="muted">لا توجد أدلة.</p>';
+$('dossier').innerHTML='<h2>ملف '+E(m.name)+'</h2><div class="flex no-print"><button id="analyze">تحليل</button><button class="secondary" onclick="printMerchant()">طباعة التقرير</button><button class="secondary" id="approveOutreach">اعتماد التواصل</button><select id="leadStage"><option value="new">جديد</option><option value="qualified">مؤهل</option><option value="contacted">تم التواصل</option><option value="proposal">عرض مقدم</option><option value="won">مكتسب</option><option value="lost">مفقود</option></select><button id="saveLead">تحديث فرصة البيع</button></div><div class="grid"><div><h3>قنوات '+E(m.channels.length)+'</h3>'+m.channels.map(c=>'<p><a target="_blank" rel="noopener noreferrer" href="'+E(c.url)+'">'+E(c.platform)+' — '+E(c.url)+'</a></p>').join('')+'<form id="channelForm" class="stack no-print"><input name="platform" required placeholder="المنصة"><input name="url" type="url" required placeholder="https:// رابط الحساب"><button>إضافة قناة</button></form></div><div><h3>إضافة دليل مرصود</h3><form id="evidenceForm" class="stack no-print"><input name="platform" required placeholder="المنصة"><input name="source_url" type="url" required placeholder="https:// رابط المنشور"><label>وقت الرصد</label><input type="datetime-local" required name="observed_at"><label>تاريخ النشر الحقيقي (اختياري، لا يُستنتج من الرصد)</label><input type="datetime-local" name="published_at"><textarea name="text" placeholder="نص المنشور"></textarea><div class="flex"><input name="likes" type="number" min="0" placeholder="إعجابات"><input name="comments" type="number" min="0" placeholder="تعليقات"><input name="views" type="number" min="0" placeholder="مشاهدات"></div><button>حفظ الدليل</button></form></div></div><h3>التقييم</h3><div class="cards"><div class="card"><small>النتيجة</small><strong>'+E(a?.score??'غير متاح')+'</strong></div><div class="card"><small>التغطية</small><strong>'+E(a?.coverage??'—')+'%</strong></div><div class="card"><small>الثقة</small><strong>'+E(a?.confidence??'—')+'%</strong></div></div><pre>'+E(a?JSON.stringify(a.dimensions,null,2):'لا يوجد تقييم بعد')+'</pre><h3>الأدلة ('+m.evidence.length+')</h3>'+list+'<h3>التوصيات</h3>'+m.recommendations.map(r=>'<div class="item"><b>'+E(r.problem)+'</b><p>'+E(r.action)+'</p><small>'+E(r.status)+' | أدلة: '+E(r.evidence_ids)+'</small></div>').join('')+'<p class="muted">هذا التقرير يعتمد على عينة الأدلة ولا يمثل مسحاً شاملاً لحساب التاجر.</p>';
+$('analyze').onclick=()=>handle(async()=>{let r=await request('/merchants/'+id+'/analyze','POST');notice('أُنشئت '+r.recommendations_created+' توصيات');await showMerchant(id);await reload()});
+$('channelForm').onsubmit=e=>{e.preventDefault();handle(async()=>{await request('/merchants/'+id+'/channels','POST',Object.fromEntries(new FormData(e.target)));await showMerchant(id)})};
+$('evidenceForm').onsubmit=e=>{e.preventDefault();handle(async()=>{let o=Object.fromEntries(new FormData(e.target));o.observed_at=new Date(o.observed_at).toISOString();o.published_at=o.published_at?new Date(o.published_at).toISOString():null;for(const k of ['likes','comments','views'])o[k]=o[k]===''?null:Number(o[k]);await request('/merchants/'+id+'/evidence','POST',o);await showMerchant(id)})};
+$('approveOutreach').onclick=()=>handle(async()=>{let reason=prompt('سبب موافقة المسؤول على التواصل:');if(reason&&reason.length>=3){await request('/merchants/'+id+'/outreach-approval','POST',{approved:true,notes:reason},'reviewer');notice('تم اعتماد التواصل؛ لا توجد رسائل تُرسل تلقائياً.')}});
+$('saveLead').onclick=()=>handle(async()=>{await request('/merchants/'+id+'/lead','POST',{stage:$('leadStage').value});notice('تم حفظ مرحلة العميل المحتمل')});})}
+function renderReviews(){$('reviewList').innerHTML=pending.map(r=>'<div class="item"><strong>التاجر رقم '+esc(r.merchant_id)+'</strong><h3>'+esc(r.problem)+'</h3><p>'+esc(r.action)+'</p><p class="muted">الأدلة: '+esc(r.evidence_ids)+' | الأولوية: '+esc(r.priority)+'</p><input id="reviewNote'+r.id+'" style="width:100%" placeholder="ملاحظات المراجع وسبب القرار"><div class="flex"><button data-review="'+r.id+'" data-decision="approved">اعتماد</button><button class="secondary" data-review="'+r.id+'" data-decision="changes_requested">طلب تعديل</button><button class="danger" data-review="'+r.id+'" data-decision="rejected">رفض</button></div></div>').join('')||'<p class="muted">لا توجد توصيات معلقة</p>';document.querySelectorAll('[data-review]').forEach(b=>b.onclick=()=>handle(async()=>{await request('/recommendations/'+b.dataset.review+'/review','POST',{decision:b.dataset.decision,notes:$('reviewNote'+b.dataset.review).value},'reviewer');await reload()}))}
+async function market(){await handle(async()=>{let q=new URLSearchParams();if($('marketCity').value)q.set('city',$('marketCity').value);if($('marketCategory').value)q.set('category',$('marketCategory').value);let m=await request('/market?'+q);$('marketResult').innerHTML='<div class="card"><strong>'+m.merchants_count+'</strong><small>تجار في العينة</small></div><div class="grid"><div class="item"><b>الأنشطة</b><pre>'+esc(JSON.stringify(m.categories,null,2))+'</pre></div><div class="item"><b>المدن</b><pre>'+esc(JSON.stringify(m.cities,null,2))+'</pre></div></div>'})}
+$('marketRun').onclick=market;$('compareRun').onclick=()=>handle(async()=>{let m=await request('/compare?merchant_ids='+encodeURIComponent($('compareIds').value));$('comparison').innerHTML='<div class="scroll"><table><tr><th>التاجر</th><th>المدينة</th><th>أدلة</th><th>تقييم</th><th>التغطية</th></tr>'+m.results.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.city)+'</td><td>'+x.evidence_count+'</td><td>'+esc(x.assessment?.score??'غير متاح')+'</td><td>'+esc(x.assessment?.coverage??'—')+'%</td></tr>').join('')+'</table></div><p class="muted">'+esc(m.caveat)+'</p>'});
+async function opportunities(){await handle(async()=>{let m=await request('/opportunities');$('opportunityList').innerHTML='<div class="scroll"><table><tr><th>التاجر</th><th>المدينة</th><th>درجة الفرصة</th><th>المرحلة</th><th>اعتماد التواصل</th></tr>'+m.opportunities.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.city)+'</td><td>'+esc(x.opportunity_score??'غير متاح')+'</td><td>'+esc(x.lead_stage)+'</td><td>'+ (x.outreach_approved?'نعم':'لا')+'</td></tr>').join('')+'</table></div>'})}
+async function skills(){await handle(async()=>{let x=await request('/skills');$('skills').innerHTML=x.skills.map(s=>'<div class="item">'+esc(s.name)+'<small> — '+esc(s.purpose)+' — غير منفّذة</small></div>').join('')})}
+$('csvForm').onsubmit=e=>{e.preventDefault();handle(async()=>{$('csvOut').textContent=JSON.stringify(await request('/import/preview','POST',new FormData(e.target)),null,2)})};
+$('auditRun').onclick=()=>handle(async()=>{$('auditOut').textContent=JSON.stringify(await request('/audit'),null,2)});
+$('export').onclick=()=>handle(async()=>{let r=await fetch('/api/export.csv',{headers:{'X-Admin-Token':$('secret').value}});if(!r.ok)throw Error('تعذر التصدير');let a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download='merchants.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)});
+
+/* Human-confirmed merchant import: previews are data, not instructions. */
+let importPreview=[];
+$('csvForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
+ const result=await request('/import/preview','POST',new FormData(e.target));
+ importPreview=result.preview;
+ $('csvOut').textContent=JSON.stringify(result,null,2);
+ if(document.getElementById('commitCsv'))document.getElementById('commitCsv').remove();
+ let good=importPreview.filter(x=>x.status==='new' && x.city && x.name);
+ if(good.length){
+ const b=document.createElement('button');b.id='commitCsv';b.className='secondary';b.textContent='اعتماد إدخال '+good.length+' تاجر بعد فحص المعاينة';
+ $('csvOut').insertAdjacentElement('afterend',b);
+ b.onclick=()=>handle(async()=>{
+  if(!confirm('تأكيد إدخال '+good.length+' تاجراً من معاينة CSV؟ لا يُجرى أي جمع تلقائي.'))return;
+  const outcome=await request('/import/commit','POST',{confirm:true,rows:good.map(x=>({name:x.name,city:x.city}))});
+  notice('تم إدخال '+outcome.inserted+' تاجر؛ التكرارات: '+outcome.duplicates.length);
+  b.remove();await reload();
+ });
+ }
+})};
+const renderDossierOriginal=showMerchant;
+showMerchant=async function(id){
+ await renderDossierOriginal(id);
+ const holder=$('dossier');
+ const b=document.createElement('button');b.className='secondary no-print';b.textContent='إعداد مسودة عرض تسويقي من توصيات معتمدة';
+ b.onclick=()=>handle(async()=>{
+  const proposal=await request('/merchants/'+id+'/proposal');
+  let area=document.getElementById('proposalDraft');
+  if(!area){area=document.createElement('section');area.id='proposalDraft';holder.append(area)}
+  area.replaceChildren();
+  const heading=document.createElement('h3');heading.textContent='مسودة العرض التسويقي — للمراجعة فقط';area.append(heading);
+  if(proposal.status!=='draft_for_human_review'){const p=document.createElement('p');p.textContent='لا توجد توصيات معتمدة تكفي لإعداد عرض تسويقي.';area.append(p);return}
+  const intro=document.createElement('p');intro.textContent=proposal.merchant.name+' — '+proposal.summary;area.append(intro);
+  for(const s of proposal.services){
+   const block=document.createElement('div');block.className='item';
+   const title=document.createElement('strong');title.textContent=s.problem;block.append(title);
+   const action=document.createElement('p');action.textContent=s.action;block.append(action);
+   for(const source of s.source_evidence){const a=document.createElement('a');a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='دليل: '+source.url;block.append(a);block.append(document.createElement('br'))}
+   area.append(block);
+  }
+  const note=document.createElement('small');note.textContent='مسودة غير مرسلة؛ تتطلب موافقة بشرية مستقلة قبل التواصل. لا تتضمن وعوداً بنتائج أو مبيعات.';area.append(note);
+ });
+ holder.prepend(b);
+};
+
+/* Optional local Ollama assistant: drafts are never approved automatically. */
+const previousMerchantPage = showMerchant;
+showMerchant = async function(id) {
+    await previousMerchantPage(id);
+    const controls=document.createElement("div");controls.className="flex no-print";
+    const sel=document.createElement("select");sel.id="agentMode";
+    for(const [value,label] of Object.entries({content:"تحليل المحتوى",audience:"تحليل الجمهور",competition:"تحليل المنافسة",prospecting:"فرص التسويق",proposal:"مسودة عرض"})){
+        const option=document.createElement("option");option.value=value;option.textContent=label;sel.append(option);
+    }
+    const run=document.createElement("button");run.className="secondary";run.textContent="تشغيل الوكيل المحلي (Ollama)";
+    const status=document.createElement("span");status.className="muted";status.textContent="يحتاج نموذج Ollama محلياً؛ المخرجات بانتظار مراجعة.";
+    run.onclick=()=>handle(async()=>{
+        run.disabled=true;
+        try{
+            const result=await request("/merchants/"+id+"/agent-draft","POST",{mode:sel.value});
+            notice("حُفظت "+result.recommendation_ids.length+" مسودات للمراجعة؛ لا توجد رسائل مرسلة.");
+            await reload();
+            await previousMerchantPage(id);
+        }finally{run.disabled=false}
+    });
+    controls.append(sel,run,status);
+    $("dossier").prepend(controls);
+};
+
+let osmCandidates=[];
+$('osmForm').onsubmit=e=>{e.preventDefault();handle(async()=>{
+ const raw=Object.fromEntries(new FormData(e.target));const city=raw.city;
+ const body={lat:Number(raw.lat),lon:Number(raw.lon),radius_m:Number(raw.radius_m),category:raw.category};
+ notice("جاري الاستعلام من OpenStreetMap ...");
+ const result=await request('/discovery/osm','POST',body);
+ osmCandidates=result.results.map(x=>({...x,city}));
+ const area=$('osmResults');area.replaceChildren();
+ const summary=document.createElement('p');summary.textContent='نتائج البحث: '+osmCandidates.length+' — اختر التجار المراد إدخالهم بعد التحقق من المصدر.';area.append(summary);
+ osmCandidates.forEach((item,i)=>{
+  const div=document.createElement('div');div.className='item';
+  const label=document.createElement('label');
+  const chk=document.createElement('input');chk.type='checkbox';chk.value=i;chk.className='osm-choice';
+  label.append(chk,document.createTextNode(' '+item.name+' — '+item.category+' '));
+  const a=document.createElement('a');a.href=item.source_url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='رابط المصدر';
+  div.append(label,a);area.append(div);
+ });
+ if(osmCandidates.length){
+  const btn=document.createElement('button');btn.textContent='تأكيد إدخال التجار المحددين';btn.className='secondary';
+  btn.onclick=()=>handle(async()=>{
+   const choices=[...document.querySelectorAll('.osm-choice:checked')].map(x=>osmCandidates[Number(x.value)]);
+   if(!choices.length){notice('حدد تاجراً واحداً على الأقل',true);return}
+   if(!confirm('تأكيد إدخال '+choices.length+' تجار مع توثيق رابط OpenStreetMap؟'))return;
+   const rows=choices.map(x=>({name:x.name,city:x.city,category:x.category,source_url:x.source_url}));
+   const saved=await request('/discovery/osm/commit','POST',{confirm:true,merchants:rows});
+   notice('تم إدخال '+saved.imported+' من '+choices.length+' تاجر. تكرارات: '+saved.skipped.length);
+   area.replaceChildren();await reload();
+  });area.append(btn);
+ }
+})};
+
+let lastPortfolioReport=null;
+function chartBars(target,series){
+    const root=$(target);root.replaceChildren();
+    const values=Object.entries(series || {}).filter(([,n])=>Number.isFinite(n) && n>=0);
+    const max=Math.max(1,...values.map(([,v])=>v));
+    if(!values.length){const p=document.createElement('p');p.className='muted';p.textContent='لا توجد بيانات كافية للرسم';root.append(p);return;}
+    for(const [key,num] of values){
+        const row=document.createElement('div');row.className='chart-row';
+        const name=document.createElement('span');name.textContent=key;
+        const track=document.createElement('div');track.className='chart-track';
+        const bar=document.createElement('div');bar.className='chart-bar';bar.style.width=(num/max*100)+'%';
+        const value=document.createElement('strong');value.textContent=String(num);
+        track.append(bar);row.append(name,track,value);root.append(row);
+    }
+}
+async function runPortfolioReport(){
+    await handle(async()=>{
+        const q=new URLSearchParams();
+        if($('reportCity').value.trim())q.set('city',$('reportCity').value.trim());
+        if($('reportCategory').value.trim())q.set('category',$('reportCategory').value.trim());
+        const data=await request('/reports/portfolio?'+q.toString());
+        lastPortfolioReport=data;
+        const vals=[
+          ['التجار في العينة',data.merchant_count],
+          ['الأدلة المسجلة',data.evidence_count],
+          ['التجار ذوو أدلة',data.merchants_with_evidence],
+          ['تقييم غير متاح',data.merchants_without_usable_score],
+          ['متوسط التقييم المتاح',data.average_score_observed_sample===null?'غير متاح':data.average_score_observed_sample],
+          ['متوسط تغطية البيانات',data.average_coverage_assessed_sample===null?'غير متاح':data.average_coverage_assessed_sample+'%'],
+          ['التوصيات بانتظار مراجعة',(data.reviews||{}).pending_review||0],
+          ['موافقات التواصل',data.outreach_approved]
+        ];
+        $('reportKpis').replaceChildren();
+        for(const [title,n] of vals){
+            const card=document.createElement('div');card.className='card';
+            const label=document.createElement('small');label.textContent=title;
+            const value=document.createElement('strong');value.textContent=String(n);
+            card.append(label,value);$('reportKpis').append(card);
+        }
+        chartBars('reviewChart',{'بانتظار المراجعة':data.reviews.pending_review||0,'معتمدة':data.reviews.approved||0,'مرفوضة':data.reviews.rejected||0,'تعديل مطلوب':data.reviews.changes_requested||0});
+        chartBars('leadChart',{'جديد':data.lead_stages.new||0,'مؤهل':data.lead_stages.qualified||0,'تم التواصل':data.lead_stages.contacted||0,'عرض':data.lead_stages.proposal||0,'مكتسب':data.lead_stages.won||0,'مفقود':data.lead_stages.lost||0});
+        $('reportRows').replaceChildren();
+        for(const m of data.merchants){
+            const row=document.createElement('tr');
+            for(const cell of [m.name,m.city,m.evidence_count,m.score===null?'غير متاح':m.score,m.coverage===null?'غير متاح':m.coverage+'%',m.pending,m.approved]){
+              const td=document.createElement('td');td.textContent=String(cell??'—');row.append(td);
+            }
+            $('reportRows').append(row);
+        }
+        $('reportMeta').textContent='تم إنشاء التقرير في '+new Date(data.generated_at).toLocaleString('ar')+' — العدد '+data.merchant_count;
+        $('reportCaveat').textContent=data.caveat;notice('تم إنشاء التقرير من سجلات قاعدة البيانات.');
+    });
+}
+$('reportRun').onclick=runPortfolioReport;
+$('reportPrint').onclick=()=>{if(!lastPortfolioReport){notice('أنشئ التقرير أولاً',true);return;}printPortfolio()};
+$('reportJson').onclick=()=>{
+    if(!lastPortfolioReport){notice('أنشئ التقرير أولاً',true);return;}
+    const blob=new Blob([JSON.stringify(lastPortfolioReport,null,2)],{type:'application/json;charset=utf-8'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='merchantscope-report.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),500);
+};
+
+function printWithMode(mode){
+  document.body.classList.remove('print-merchant','print-portfolio');
+  document.body.classList.add(mode);
+  const cleanup=()=>{document.body.classList.remove('print-merchant','print-portfolio');window.removeEventListener('afterprint',cleanup)};
+  window.addEventListener('afterprint',cleanup,{once:true});
+  window.print();
+}
+function printMerchant(){printWithMode('print-merchant')}
+function printPortfolio(){printWithMode('print-portfolio')}
+
+async function loadRevisionRequests(){
+    await handle(async()=>{
+        const items=await request('/recommendations/changes');
+        const holder=$('revisionList');holder.replaceChildren();
+        if(!items.length){
+            const empty=document.createElement('p');empty.className='muted';empty.textContent='لا توجد توصيات تتطلب تعديلاً.';holder.append(empty);return;
+        }
+        for(const item of items){
+            const card=document.createElement('div');card.className='item';
+            const title=document.createElement('h3');title.textContent='تاجر رقم '+item.merchant_id+' — '+item.problem;card.append(title);
+            const note=document.createElement('p');note.className='muted';note.textContent='تعليق المراجع: '+(item.review_notes||'لا يوجد');card.append(note);
+            const form=document.createElement('form');form.className='stack';
+            const fields=[
+              ['problem','المشكلة',item.problem,'input'],
+              ['action','الإجراء المقترح',item.action,'textarea'],
+              ['rationale','المبررات',item.rationale||'','textarea'],
+              ['evidence_ids','أرقام الأدلة مفصولة بفواصل',JSON.parse(item.evidence_ids||'[]').join(','),'input']
+            ];
+            const controls={};
+            for(const [name,label,initial,tag] of fields){
+                const caption=document.createElement('label');caption.textContent=label;
+                const control=document.createElement(tag);control.name=name;control.value=initial;control.required=name!=='rationale';
+                caption.append(control);form.append(caption);controls[name]=control;
+            }
+            const sel=document.createElement('select');
+            for(const p of ['high','medium','low']){
+                const opt=document.createElement('option');opt.value=p;opt.textContent={high:'عالية',medium:'متوسطة',low:'منخفضة'}[p];sel.append(opt);
+            }
+            sel.value=item.priority||'medium';form.append(sel);
+            const button=document.createElement('button');button.type='submit';button.textContent='إعادة إرسال للمراجعة';form.append(button);
+            form.onsubmit=e=>{e.preventDefault();handle(async()=>{
+                const ids=controls.evidence_ids.value.split(',').map(s=>Number(s.trim()));
+                if(!ids.length || ids.some(x=>!Number.isSafeInteger(x)||x<=0)){notice('راجع أرقام الأدلة',true);return;}
+                button.disabled=true;
+                try{
+                    await request('/recommendations/'+item.id+'/resubmit','POST',{
+                        problem:controls.problem.value,action:controls.action.value,
+                        rationale:controls.rationale.value,priority:sel.value,evidence_ids:ids
+                    });
+                    await reload();notice('تمت إعادة التوصية إلى قائمة المراجعة');
+                }finally{button.disabled=false;}
+            })};
+            card.append(form);holder.append(card);
+        }
+    });
+}
+const baseReloadForRevisions=reload;
+reload=async function(){
+    await baseReloadForRevisions();
+    if($('secret').value) await loadRevisionRequests();
+};
+</script></body></html>

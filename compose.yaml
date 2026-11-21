@@ -1,0 +1,32 @@
+# LOCAL PILOT ONLY. Published port is loopback; no outside-network exposure.
+# Run: set MERCHANTSCOPE_ADMIN_TOKEN and MERCHANTSCOPE_REVIEWER_TOKEN then docker compose up --build -d
+services:
+  merchantscope:
+    build: .
+    image: merchantscope-local-pilot
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8000"
+    environment:
+      MERCHANTSCOPE_ADMIN_TOKEN: ${MERCHANTSCOPE_ADMIN_TOKEN:?Set independent analyst token}
+      MERCHANTSCOPE_REVIEWER_TOKEN: ${MERCHANTSCOPE_REVIEWER_TOKEN:?Set independent reviewer token}
+      MERCHANTSCOPE_DB: /data/merchant_scope.db
+      # Browser connects via Docker's bridge address. Host port binds ONLY to 127.0.0.1.
+      MERCHANTSCOPE_LOCAL_ONLY: "0"
+      MERCHANTSCOPE_OLLAMA_MODEL: ${MERCHANTSCOPE_OLLAMA_MODEL:-}
+    volumes:
+      - merchant_data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  merchant_data:
