@@ -127,3 +127,12 @@ def test_restored_rls_baseline_is_run_once_in_ci():
         "Expected one source and one restored RLS baseline invocation"
     )
     assert workflow.count("name: Verify core tenant RLS and policy baseline on restored database") == 1
+    # A second invocation is not a restore gate if it silently reuses the source DSN
+    # or runs before pg_restore has completed. Verify both wiring and ordering.
+    restore_step = workflow.index("name: Rehearse PostgreSQL backup and restore into separate disposable database")
+    restored_gate = workflow.index("name: Verify core tenant RLS and policy baseline on restored database")
+    next_step = workflow.index("name: Validate restored SECURITY DEFINER routines with live role checks")
+    assert restore_step < restored_gate < next_step
+    restored_block = workflow[restored_gate:next_step]
+    assert "PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore" in restored_block
+    assert restored_block.count("run: python -m pytest -q tests/test_pg_restore_rls_baseline.py") == 1
