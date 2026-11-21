@@ -41,7 +41,12 @@ def test_core_tenant_rls_and_policy_baseline():
         if os.environ.get("GITHUB_ACTIONS") == "true":
             pytest.fail("PG_TEST_DSN is required in GitHub Actions; security gate must not skip")
         pytest.skip("PostgreSQL test database is not configured")
-    psycopg = pytest.importorskip("psycopg")
+    try:
+        import psycopg
+    except ImportError:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail("psycopg is required in GitHub Actions; security gate must not skip")
+        pytest.skip("psycopg is not installed for local PostgreSQL testing")
     with psycopg.connect(dsn) as conn:
         rows = conn.execute(
             """SELECT c.relname, c.relrowsecurity, c.relkind
@@ -149,4 +154,15 @@ def test_missing_postgres_dsn_fails_closed_in_github_actions(monkeypatch):
     monkeypatch.delenv("PG_TEST_DSN", raising=False)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     with pytest.raises(pytest.fail.Exception, match="PG_TEST_DSN is required"):
+        test_core_tenant_rls_and_policy_baseline()
+
+
+def test_missing_psycopg_fails_closed_in_github_actions(monkeypatch):
+    """A missing DB driver must fail the live RLS gate, not silently skip it."""
+    import sys
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("PG_TEST_DSN", "postgresql://unused/unused")
+    monkeypatch.setitem(sys.modules, "psycopg", None)
+    with pytest.raises(pytest.fail.Exception, match="psycopg is required"):
         test_core_tenant_rls_and_policy_baseline()
