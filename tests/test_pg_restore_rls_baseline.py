@@ -38,6 +38,8 @@ REQUIRED_POLICIES = {
 def test_core_tenant_rls_and_policy_baseline():
     dsn = os.environ.get("PG_TEST_DSN")
     if not dsn:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail("PG_TEST_DSN is required in GitHub Actions; security gate must not skip")
         pytest.skip("PostgreSQL test database is not configured")
     psycopg = pytest.importorskip("psycopg")
     with psycopg.connect(dsn) as conn:
@@ -140,3 +142,11 @@ def test_restored_rls_baseline_is_run_once_in_ci():
     restored_block = workflow[restored_gate:next_step]
     assert "PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore" in restored_block
     assert restored_block.count("run: python -m pytest -q tests/test_pg_restore_rls_baseline.py") == 1
+
+
+def test_missing_postgres_dsn_fails_closed_in_github_actions(monkeypatch):
+    """A misconfigured CI job must not report a green skipped security gate."""
+    monkeypatch.delenv("PG_TEST_DSN", raising=False)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    with pytest.raises(pytest.fail.Exception, match="PG_TEST_DSN is required"):
+        test_core_tenant_rls_and_policy_baseline()
