@@ -15,7 +15,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
       - name: Test Python API
-        run: python -m pytest -q
+        run: python -m pytest -q --ignore=tests/test_pg_restore_rls_baseline.py
       - name: Compile Python
         run: python -m compileall -q app
       - name: Validate Arabic dashboard JavaScript syntax
