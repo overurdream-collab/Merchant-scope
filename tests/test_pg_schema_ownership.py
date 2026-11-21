@@ -92,7 +92,7 @@ def test_application_roles_have_no_cluster_administration_attributes():
 
 
 def test_application_roles_do_not_inherit_pg_privileged_capabilities():
-    """Role flags alone miss inherited predefined PostgreSQL privilege roles."""
+    """Block inherited and SET ROLE access to privileged PostgreSQL roles."""
     psycopg = pytest.importorskip("psycopg")
     dsn = os.environ.get("PG_TEST_DSN")
     if not dsn:
@@ -105,7 +105,7 @@ def test_application_roles_do_not_inherit_pg_privileged_capabilities():
     with psycopg.connect(dsn) as conn:
         rows = conn.execute(
             """SELECT app.rolname, capability.rolname,
-                      pg_has_role(app.oid, capability.oid, 'USAGE')
+                      pg_has_role(app.oid, capability.oid, 'MEMBER')
                FROM pg_roles app CROSS JOIN pg_roles capability
                WHERE app.rolname IN ('merchant_runtime', 'merchant_auth')
                  AND capability.rolname = ANY(%s)
@@ -116,8 +116,11 @@ def test_application_roles_do_not_inherit_pg_privileged_capabilities():
     assert {cap for _, cap, _ in rows} == set(privileged), (
         "Expected PostgreSQL predefined privilege roles are missing"
     )
-    inherited = [(app, cap) for app, cap, allowed in rows if allowed]
-    assert not inherited, f"Application roles inherit privileged capabilities: {inherited}"
+    memberships = [(app, cap) for app, cap, allowed in rows if allowed]
+    assert not memberships, (
+        "Application roles can inherit or SET ROLE to privileged capabilities: "
+        + repr(memberships)
+    )
 
 
 def test_application_roles_do_not_own_tenant_tables_or_schema():
