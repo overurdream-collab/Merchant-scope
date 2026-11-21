@@ -116,3 +116,14 @@ def test_core_tenant_rls_and_policy_baseline():
                 assert qual and "active_org()" in qual and "can_write()" in qual, (
                     f"Unscoped UPDATE USING on {table}.{policy}: {qual}"
                 )
+
+
+def test_restored_rls_baseline_is_run_once_in_ci():
+    """Prevent duplicate expensive restored-DB checks while retaining the security gate."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "postgres-rls.yml").read_text(encoding="utf-8")
+    assert workflow.count("run: python -m pytest -q tests/test_pg_restore_rls_baseline.py") == 2, (
+        "Expected one source and one restored RLS baseline invocation"
+    )
+    assert workflow.count("name: Verify core tenant RLS and policy baseline on restored database") == 1
