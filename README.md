@@ -1,72 +1,41 @@
 # MerchantScope | مرصد التجار
 
-GitHub-native marketing intelligence pilot, independent of Lovable.
+Independent GitHub-native merchant intelligence project. **Not production-ready.**
 
-**Three goals:** identify marketing-service prospects, research competitors and markets, and assess merchant marketing content with evidence-based reviewable recommendations.
+## Two distinct execution paths
 
-## Local run
+### Legacy local SQLite pilot
+`app.main:app` uses a shared `X-Admin-Token` and SQLite. It has an Arabic RTL dashboard at `/`, heuristic evidence-based scoring, source-linked evidence, bounded CSV import preview/commit, human approval queue, proposal drafts, and optional locally configured Ollama drafting. No external platform scraping, licensed social API connector, automatic outreach or live market claims are provided. This path has **no production-grade identity, tenant isolation or independent reviewer authentication**. Never expose it publicly or store sensitive real merchant records.
 
-Requires Python 3.11+.
+Run locally (Python 3.11+):
 
 ```bash
 python -m venv .venv
-# PowerShell: .venv\Scripts\Activate.ps1
-# Linux/macOS: source .venv/bin/activate
+# Activate the environment for your shell, then:
 pip install -r requirements-dev.txt
-```
-
-Set a long secret in your terminal (`$env:MERCHANTSCOPE_ADMIN_TOKEN="long-random-value"` in PowerShell or `export MERCHANTSCOPE_ADMIN_TOKEN="long-random-value"` in Bash), then run:
-
-```bash
+# Set MERCHANTSCOPE_ADMIN_TOKEN to a long random secret in your environment.
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 python -m pytest -q
 ```
 
-Open `http://127.0.0.1:8000/docs` for the API documentation. Supply the secret through the `X-Admin-Token` header. The application currently has an API-only interface; its web dashboard is not yet implemented in this repository.
+### PostgreSQL secure developer preview
+`app.pg_api:app` and `app/secure_dashboard.html` implement a **separate** PostgreSQL-backed identity/roles/tenant-isolation preview. Consult `docs/SECURE_API_V2.md`, `docs/REQUIREMENTS_TRACEABILITY.md` and the ordered `db/postgres/` migrations before configuring `MERCHANTSCOPE_AUTH_DSN` and `MERCHANTSCOPE_DATA_DSN`. Bootstrap the first admin offline using `scripts/bootstrap_pg.py`. Serve only on loopback during development:
 
-## Scope actually implemented
-- SQLite local merchant register, duplicate prevention, channels and source-linked evidence
-- Six-dimension **heuristic** scoring with unavailable vs zero distinction and coverage threshold; generated recommendations only from measured deficiencies
-- Human approval queue, outreach approval before moving sales lead to contacted/proposal, audit records
-- CSV export with formula neutralization; CSV import **preview only**
-- Automated tests and GitHub Actions CI
+```bash
+uvicorn app.pg_api:app --host 127.0.0.1 --port 8788
+```
 
-## Security / limitations
-- **LOCAL PROTOTYPE ONLY**. Single shared token; no user identity, RBAC, or tenant isolation. Never expose this service on a public interface, nor store sensitive data.
-- The URL validator does not fetch external content. Real platform collection requires compliant integrations; there is NO Facebook, TikTok, Instagram or Maps API integration, no scraping, no LLM execution and no scheduled automation.
-- Approval represents a local operator action, not an independently identified reviewer. No external messages or advertising are sent.
-- The competitor dimension is unavailable until verified comparative data is implemented.
-- Scores are simple transparent heuristics, not statistically validated measurements.
-- Data from Lovable is not imported. This is an independent implementation.
+Do **not** treat this preview as a migration of existing SQLite pilot data or as permission to deploy to the public internet.
 
-## Next engineering phases
-1. PostgreSQL; auth, role-based and tenant-scoped policies, role-separated reviewers; evidence history and safe URLs.
-2. Complete Arabic RTL frontend and audit-friendly reporting; competitor comparisons and market intelligence.
-3. Version-pin and audit selected MIT-licensed boring-marketing-skills, connect authorized platforms.
-4. End-to-end acceptance, security scans, operational backups, monitoring and approval workflows.
+## Evidence and acceptance boundaries
 
+- `.github/workflows/ci.yml` tests the Python API, JavaScript syntax, a synthetic Chromium browser smoke flow and loopback Docker startup of the **legacy pilot**. These green checks do not establish PostgreSQL tenant isolation.
+- `.github/workflows/postgres-rls.yml` separately tests disposable PostgreSQL security and backup/restore regressions. Verify the **exact candidate commit** and its workflow result; success of the legacy CI workflow is not a substitute.
+- `docs/PG_BACKUP_RESTORE.md` explains same-cluster synthetic restore limitations. It does not prove production backup schedules, offsite encrypted retention, PITR, fresh-cluster role restoration, or measured RPO/RTO.
+- `docs/MARKETING_SKILLS.md` describes proposed Boring Marketing Skills only. Do not execute third-party skills until their pinned revision, license, dependencies, prompts and network actions have been reviewed.
+- Real Facebook, Instagram, TikTok and Maps connectors require lawful authorized access, source/observed-at/licensing provenance and deletion workflows. Do not infer live metrics from the local synthetic fixtures.
+- No autonomous outreach. Human review and authorization remain mandatory.
 
-## Iteration 2 — Dashboard & intelligence endpoints
-- Arabic RTL browser dashboard at `/` (secret entered each session; not persisted)
-- Overview KPI endpoint, sample-limited market segmentation by city/category
-- Evidence-aware 2–10 merchant comparison without speculative ranking
-- Internal lead opportunity prioritization; score unavailable if evidence coverage is insufficient
-- Human-review queue & audit, CSV dedup preview, reports via browser print, safe external source links
-- Read-only marketing skill catalog: 7 proposed Boring Marketing Skills; **NOT installed/executed**
-- Additional API tests for market, comparison, permissions, and dashboard
+## Open release gates
 
-**Acceptance boundary:** This is a functional **local pilot**, not a production multi-user SaaS. Real market discovery, API-licensed platform collection, scheduled agents, independent security review, enterprise tenancy, PostgreSQL, and live production deployment remain outside this verified release. No fake live integrations. Do not expose the pilot service to the public internet.
-
-
-## Iteration 3 — explicit approved import & proposal generation
-- `POST /api/import/commit`: human-confirmed, bounded merchant bulk import (validated fields, deduplication and audit). This **does not** scrape external platforms.
-- `GET /api/merchants/{id}/proposal`: evidence-linked proposal draft **only from human-approved recommendations**. Never sends messages or makes performance promises.
-- Tests assert confirmation requirement, idempotent duplicates, unsafe-link validation and proposal prerequisites.
-
-## Optional local AI agent (Ollama)
-To run local model-assisted drafting, start Ollama on **127.0.0.1:11434**, install a model with sufficient Arabic proficiency, then set `MERCHANTSCOPE_OLLAMA_MODEL` to its exact name. API: `POST /api/merchants/{id}/agent-draft` with `{"mode":"content"|"audience"|"competition"|"prospecting"|"proposal"}`. Model must return JSON citing existing evidence IDs. Invalid or unsupported citations are rejected, and any valid drafts remain `pending_review`. **No sending, publishing, or financial effect is performed by this endpoint.**
-Upstream marketing skills are **conceptually mapped**, not blindly installed or executed. See `docs/MARKETING_SKILLS.md`.
-
-
-## Secure PostgreSQL preview
-The independent Arabic RTL PostgreSQL user interface is at `app/secure_dashboard.html`, served by `app.pg_api:app`. Apply SQL migrations `db/postgres/001_init.sql` and `002_identity.sql`, offline-bootstrap an admin using `scripts/bootstrap_pg.py`, configure `MERCHANTSCOPE_AUTH_DSN` and `MERCHANTSCOPE_DATA_DSN`, and run `uvicorn app.pg_api:app --host 127.0.0.1 --port 8788`. This is a developer preview, not approved for public network deployment. Browser acceptance uses synthetic data. See docs/SECURE_API_V2.md and docs/REQUIREMENTS_TRACEABILITY.md.
+Track [identity, RLS and PostgreSQL acceptance (#2)](https://github.com/overurdream-collab/Merchant-scope/issues/2), [lawful source connectors (#3)](https://github.com/overurdream-collab/Merchant-scope/issues/3), [audited AI/marketing skills (#4)](https://github.com/overurdream-collab/Merchant-scope/issues/4), and [real pilot, E2E, security, deployment and recovery (#5)](https://github.com/overurdream-collab/Merchant-scope/issues/5). PR #1 remains a review vehicle, not a production approval. Never merge or announce production readiness without complete, independently verified P0 evidence.
