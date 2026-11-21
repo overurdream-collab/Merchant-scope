@@ -10,7 +10,7 @@ import pytest
 CORE_TENANT_TABLES = (
     "organizations", "memberships", "merchants", "channels", "evidence",
     "assessments", "recommendations", "recommendation_evidence",
-    "leads", "audit_events",
+    "leads", "audit_events", "research_candidates",
 )
 # Write policies are part of the expected authorization contract, not optional.
 # A missing policy may silently disable legitimate workflows even if reads work.
@@ -25,11 +25,12 @@ UPDATE_POLICY_TABLES = (
 
 REQUIRED_POLICIES = {
     "organizations": {"org_read"},
+    "research_candidates": {"research_read", "research_insert", "research_update"},
     "memberships": {"membership_read", "membership_write"},
     **{
         table: {"tenant_read"}
         for table in CORE_TENANT_TABLES
-        if table not in ("organizations", "memberships")
+        if table not in ("organizations", "memberships", "research_candidates")
     },
 }
 
@@ -70,19 +71,20 @@ def test_core_tenant_rls_and_policy_baseline():
                 f'Unexpected policy role targets {table}.{policy}: {roles}'
             )
             if policy in REQUIRED_POLICIES[table]:
-                expected_cmd = "ALL" if policy == "membership_write" else "SELECT"
+                expected_cmd = {"membership_write": "ALL", "research_insert": "INSERT", "research_update": "UPDATE"}.get(policy, "SELECT")
                 assert cmd == expected_cmd, f"Unsafe policy command on {table}.{policy}: {cmd}"
-                assert qual and "active_org()" in qual, (
+                assert (policy == "research_insert" or (qual and "active_org()" in qual)), (
                     f"Missing tenant scope in {table}.{policy} USING clause: {qual}"
                 )
                 expected_predicate = (
-                    "has_role(" if policy == "membership_write" else "is_member()"
+                    "has_role(" if policy == "membership_write" else
+                    "can_write()" if policy in ("research_insert", "research_update") else "is_member()"
                 )
-                assert expected_predicate in qual, (
+                assert expected_predicate in (with_check if policy == "research_insert" else qual), (
                     f"Missing membership/role guard in {table}.{policy}: {qual}"
                 )
-                if policy == "membership_write":
-                    assert with_check and "active_org()" in with_check and "has_role(" in with_check, (
+                if policy in ("membership_write", "research_insert", "research_update"):
+                    assert with_check and "active_org()" in with_check and (("has_role(" if policy == "membership_write" else "can_write()") in with_check), (
                         f"Missing tenant/admin WITH CHECK on {table}.{policy}: {with_check}"
                     )
         for table in WRITE_POLICY_TABLES:
@@ -105,7 +107,7 @@ def test_core_tenant_rls_and_policy_baseline():
                 continue
             if policy not in {"tenant_insert", "tenant_update"}:
                 raise AssertionError(f"Unexpected tenant policy {table}.{policy}")
-            if table in ("organizations", "memberships", "audit_events"):
+            if table not in WRITE_POLICY_TABLES:
                 raise AssertionError(f"Unexpected write policy {table}.{policy}")
             expected_cmd = "INSERT" if policy == "tenant_insert" else "UPDATE"
             assert cmd == expected_cmd, f"Unexpected command {table}.{policy}: {cmd}"
@@ -126,6 +128,8 @@ def test_restored_rls_baseline_is_run_once_in_ci():
     assert workflow.count("run: python -m pytest -q tests/test_pg_restore_rls_baseline.py") == 2, (
         "Expected one source and one restored RLS baseline invocation"
     )
+    assert "research_candidates" in CORE_TENANT_TABLES
+    assert REQUIRED_POLICIES["research_candidates"] == {"research_read", "research_insert", "research_update"}
     assert workflow.count("name: Verify core tenant RLS and policy baseline on restored database") == 1
     # A second invocation is not a restore gate if it silently reuses the source DSN
     # or runs before pg_restore has completed. Verify both wiring and ordering.
