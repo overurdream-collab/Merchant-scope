@@ -284,6 +284,16 @@ jobs:
           done
           disabled_rls="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity")"
           test -z "$disabled_rls" || { echo "SECURITY FAILURE: independent cluster tenant tables without RLS: $disabled_rls"; exit 1; }
+          # Role memberships are cluster-global, absent from schema-only pg_dump.
+          # Compare membership grants after pg_dumpall globals restore, including
+          # inheritance/admin/set options, to catch lost or escalated privileges.
+          membership_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s', member.rolname, granted.rolname, m.admin_option, m.inherit_option, m.set_option), ',' ORDER BY member.rolname, granted.rolname), '') FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles granted ON granted.oid=m.roleid WHERE member.rolname IN ('merchant_auth','merchant_runtime')"
+          source_memberships="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "$membership_sql")"
+          target_memberships="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "$membership_sql")"
+          test "$source_memberships" = "$target_memberships" || { echo "SECURITY FAILURE: independent cluster service-role memberships differ"; exit 1; }
+          # The service roles must not inherit other roles: a matching but
+          # overprivileged source cluster is not a safe recovery baseline.
+          test -z "$source_memberships" || { echo "SECURITY FAILURE: service roles have unexpected role memberships"; exit 1; }
           for role in merchant_auth merchant_runtime; do
             source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
             target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
