@@ -15,7 +15,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
       - name: Test Python API
-        run: python -m pytest -q --ignore=tests/test_pg_restore_rls_baseline.py
+        run: |
+          python -m pytest -q --ignore=tests/test_pg_restore_rls_baseline.py
+          # Run configuration regressions without requiring a live PostgreSQL service.
+          python -m pytest -q \
+            tests/test_pg_restore_rls_baseline.py::test_restored_rls_baseline_is_run_once_in_ci \
+            tests/test_pg_restore_rls_baseline.py::test_missing_postgres_dsn_fails_closed_in_github_actions \
+            tests/test_pg_restore_rls_baseline.py::test_missing_psycopg_fails_closed_in_github_actions
       - name: Compile Python
         run: python -m compileall -q app
       - name: Validate Arabic dashboard JavaScript syntax
