@@ -237,6 +237,42 @@ jobs:
           PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore
         run: python -m pytest -q tests/test_pg_security_definer.py tests/test_pg_schema_ownership.py
 
+      - name: Rehearse restore on independent PostgreSQL cluster with global roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_container="${{ job.services.postgres.id }}"
+          target_container="merchantscope-independent-restore"
+          trap 'docker rm -f "$target_container" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$target_container" -e POSTGRES_PASSWORD=test-password -e POSTGRES_DB=merchantscope_restore postgres:16
+          for attempt in $(seq 1 40); do
+            if docker exec "$target_container" pg_isready -U postgres -d merchantscope_restore >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec "$target_container" pg_isready -U postgres -d merchantscope_restore
+          # pg_dump -n ms omits cluster-global roles. Restore them separately
+          # on the fresh cluster, without retaining any archive as an artifact.
+          docker exec "$source_container" pg_dumpall -U postgres --globals-only > "$RUNNER_TEMP/ci-globals.sql"
+          # The destination bootstrap already creates postgres; avoid duplicate CREATE ROLE.
+          sed '/^CREATE ROLE postgres;$/d' "$RUNNER_TEMP/ci-globals.sql" |
+            docker exec -i "$target_container" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1
+          docker exec "$source_container" pg_dump -U postgres -d merchantscope_test -n ms -Fc > "$RUNNER_TEMP/ci-independent.dump"
+          docker exec -i "$target_container" pg_restore --exit-on-error -U postgres -d merchantscope_restore < "$RUNNER_TEMP/ci-independent.dump"
+          for role in merchant_auth merchant_runtime; do
+            source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
+            target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
+            test -n "$source_role" && test "$source_role" = "$target_role" || { echo "SECURITY FAILURE: independent cluster role mismatch: $role"; exit 1; }
+          done
+          for sql in \
+            "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass" \
+            "SELECT NOT has_function_privilege('merchant_runtime', 'ms.login_account(text,uuid)', 'EXECUTE')" \
+            "SELECT NOT has_function_privilege('merchant_runtime', 'ms.lookup_session(bytea)', 'EXECUTE')" \
+            "SELECT has_function_privilege('merchant_auth', 'ms.login_account(text,uuid)', 'EXECUTE')"; do
+            actual="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$sql")"
+            test "$actual" = t || { echo "SECURITY FAILURE: independent cluster RLS/auth privilege check failed"; exit 1; }
+          done
+          echo "PASS: disposable independent PostgreSQL cluster roles, schema, RLS and auth grants."
+
       - name: Upload secure synthetic UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
