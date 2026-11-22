@@ -10,7 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_generic_ci_excludes_live_postgres_baseline():
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "run: python -m pytest -q --ignore=tests/test_pg_restore_rls_baseline.py" in ci
+    assert "python -m pytest -q --ignore=tests/test_pg_restore_rls_baseline.py" in ci
+    # The live gate is excluded from generic CI, but offline routing regressions
+    # must remain executable and must never be silently skipped.
+    assert "tests/test_pg_restore_rls_baseline.py::test_general_ci_executes_offline_postgres_gate_regressions" in ci
+    assert "tests/test_pg_restore_rls_baseline.py::test_missing_postgres_dsn_fails_closed_in_github_actions" in ci
+    assert "tests/test_pg_restore_rls_baseline.py::test_missing_psycopg_fails_closed_in_github_actions" in ci
     assert "PG_TEST_DSN:" not in ci
 
 
