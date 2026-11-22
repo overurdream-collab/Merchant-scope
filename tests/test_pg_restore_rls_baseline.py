@@ -166,3 +166,19 @@ def test_missing_psycopg_fails_closed_in_github_actions(monkeypatch):
     monkeypatch.setitem(sys.modules, "psycopg", None)
     with pytest.raises(pytest.fail.Exception, match="psycopg is required"):
         test_core_tenant_rls_and_policy_baseline()
+
+
+def test_general_ci_executes_offline_postgres_gate_regressions():
+    """Keep security-gate wiring tests running even when live DB checks are isolated."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "--ignore=tests/test_pg_restore_rls_baseline.py" in workflow
+    for test_name in (
+        "test_restored_rls_baseline_is_run_once_in_ci",
+        "test_missing_postgres_dsn_fails_closed_in_github_actions",
+        "test_missing_psycopg_fails_closed_in_github_actions",
+    ):
+        assert f"tests/test_pg_restore_rls_baseline.py::{test_name}" in workflow, (
+            f"General CI stopped executing offline PostgreSQL gate regression: {test_name}"
+        )
