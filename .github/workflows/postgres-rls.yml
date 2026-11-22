@@ -272,6 +272,18 @@ jobs:
             target_digest="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$digest_sql")"
             test "$source_digest" = "$target_digest" || { echo "SECURITY FAILURE: independent cluster row digest differs: $table"; exit 1; }
           done
+          # A row-perfect restore can still silently lose tenant policies or RLS
+          # on tables other than research_candidates. Compare the full catalog
+          # across independent clusters and fail if any tenant table lacks RLS.
+          tenant_rls_sql="SELECT coalesce(string_agg(c.relname || ':' || c.relrowsecurity::text || ':' || c.relforcerowsecurity::text, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p')"
+          tenant_policies_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s:%s', tablename, policyname, permissive, roles::text, cmd, coalesce(qual,''), coalesce(with_check,'')), E'\\n' ORDER BY tablename, policyname), '') FROM pg_policies WHERE schemaname='ms'"
+          for sql in "$tenant_rls_sql" "$tenant_policies_sql"; do
+            source_catalog="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$sql")"
+            target_catalog="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$sql")"
+            test -n "$source_catalog" && test "$source_catalog" = "$target_catalog" || { echo "SECURITY FAILURE: independent cluster tenant RLS/policy catalog differs"; exit 1; }
+          done
+          disabled_rls="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity")"
+          test -z "$disabled_rls" || { echo "SECURITY FAILURE: independent cluster tenant tables without RLS: $disabled_rls"; exit 1; }
           for role in merchant_auth merchant_runtime; do
             source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
             target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
