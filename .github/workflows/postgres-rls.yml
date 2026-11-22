@@ -288,13 +288,12 @@ jobs:
             source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
             target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
             test -n "$source_role" && test "$source_role" = "$target_role" || { echo "SECURITY FAILURE: independent cluster role mismatch: $role"; exit 1; }
-            # Matching privileges are insufficient when both clusters contain
-            # the same unsafe elevated role. Reject privileged service roles.
-            for database_role in "$source_role" "$target_role"; do
-              test "$database_role" = "true:false:false:false:false:false:true" || {
-                echo "SECURITY FAILURE: unsafe service role attributes: $role"
-                exit 1
-              }
+            # Matching source and target roles may both be overprivileged.
+            # Check the dangerous attributes explicitly, without assuming
+            # LOGIN or INHERIT defaults for these service roles.
+            for cluster in "$source_container" "$target_container"; do
+              elevated="$(docker exec "$cluster" psql -X -U postgres -d postgres -Atc "SELECT rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication FROM pg_roles WHERE rolname='$role'")"
+              test "$elevated" = f || { echo "SECURITY FAILURE: elevated service role: $role"; exit 1; }
             done
           done
           for sql in \
