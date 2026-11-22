@@ -285,9 +285,17 @@ jobs:
           disabled_rls="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity")"
           test -z "$disabled_rls" || { echo "SECURITY FAILURE: independent cluster tenant tables without RLS: $disabled_rls"; exit 1; }
           for role in merchant_auth merchant_runtime; do
-            source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
-            target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
+            source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
+            target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
             test -n "$source_role" && test "$source_role" = "$target_role" || { echo "SECURITY FAILURE: independent cluster role mismatch: $role"; exit 1; }
+            # Matching privileges are insufficient when both clusters contain
+            # the same unsafe elevated role. Reject privileged service roles.
+            for database_role in "$source_role" "$target_role"; do
+              test "$database_role" = "true:false:false:false:false:false:true" || {
+                echo "SECURITY FAILURE: unsafe service role attributes: $role"
+                exit 1
+              }
+            done
           done
           for sql in \
             "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass" \
