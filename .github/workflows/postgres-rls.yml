@@ -317,6 +317,18 @@ jobs:
             actual="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$sql")"
             test "$actual" = t || { echo "SECURITY FAILURE: independent cluster RLS/auth privilege check failed"; exit 1; }
           done
+          # Compare and enforce the full SECURITY DEFINER execution boundary on
+          # both clusters. Checking only two authentication routines misses newly
+          # introduced privileged functions with accidental PUBLIC/runtime grants.
+          definer_public_sql="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege('PUBLIC', p.oid, 'EXECUTE')"
+          definer_runtime_sql="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege('merchant_runtime', p.oid, 'EXECUTE')"
+          for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
+            IFS=: read -r cluster database <<< "$cluster_db"
+            exposed="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$definer_public_sql")"
+            test -z "$exposed" || { echo "SECURITY FAILURE: independent cluster PUBLIC SECURITY DEFINER exposure: $exposed"; exit 1; }
+            allowed="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$definer_runtime_sql")"
+            test "$allowed" = "ms.has_role(ms.member_role),ms.is_member()" || { echo "SECURITY FAILURE: independent cluster runtime SECURITY DEFINER allowlist drift: $allowed"; exit 1; }
+          done
           echo "PASS: disposable independent PostgreSQL cluster roles, schema, RLS and auth grants."
 
       - name: Upload secure synthetic UI screenshots
