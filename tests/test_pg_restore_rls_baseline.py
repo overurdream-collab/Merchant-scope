@@ -182,3 +182,19 @@ def test_general_ci_executes_offline_postgres_gate_regressions():
         assert f"tests/test_pg_restore_rls_baseline.py::{test_name}" in workflow, (
             f"General CI stopped executing offline PostgreSQL gate regression: {test_name}"
         )
+
+
+def test_independent_cluster_restore_checks_all_tenant_policies():
+    """A second PostgreSQL server must not validate only one RLS table."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "postgres-rls.yml").read_text(encoding="utf-8")
+    independent = workflow.split("name: Rehearse restore on independent PostgreSQL cluster with global roles", 1)[1]
+    independent = independent.split("name: Upload secure synthetic UI screenshots", 1)[0]
+    assert 'tenant_rls_sql=' in independent
+    assert 'tenant_policies_sql=' in independent
+    assert 'FROM pg_policies WHERE schemaname=\'ms\'' in independent
+    assert 'AND NOT c.relrowsecurity' in independent
+    assert 'test -z "$disabled_rls"' in independent
+    assert 'source_catalog' in independent and 'target_catalog' in independent
+    assert 'test -n "$source_catalog" && test "$source_catalog" = "$target_catalog"' in independent
