@@ -321,8 +321,11 @@ jobs:
             "SELECT has_function_privilege('merchant_auth', 'ms.lookup_session(bytea)', 'EXECUTE')" \
             "SELECT NOT has_function_privilege('PUBLIC', 'ms.login_account(text,uuid)', 'EXECUTE')" \
             "SELECT NOT has_function_privilege('PUBLIC', 'ms.lookup_session(bytea)', 'EXECUTE')"; do
-            actual="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$sql")"
-            test "$actual" = t || { echo "SECURITY FAILURE: independent cluster RLS/auth privilege check failed"; exit 1; }
+            for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
+              IFS=: read -r cluster database <<< "$cluster_db"
+              actual="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$sql")"
+              test "$actual" = t || { echo "SECURITY FAILURE: independent cluster RLS/auth privilege check failed in $database"; exit 1; }
+            done
           done
           # Compare and enforce the full SECURITY DEFINER execution boundary on
           # both clusters. Checking only two authentication routines misses newly
