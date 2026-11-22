@@ -44,3 +44,13 @@ def test_independent_restore_fails_closed_on_security_drift():
         assert predicate in step
     assert 'test "$actual" = t ||' in step
     assert 'test -n "$source_role" && test "$source_role" = "$target_role" ||' in step
+
+
+def test_independent_restore_checks_full_tenant_data_integrity():
+    """Require every tenant table's row contents to match on the fresh cluster."""
+    step = _independent_step()
+    assert 'test -n "$source_inventory" && test "$source_inventory" = "$target_inventory"' in step
+    assert 'for table in "${restored_tables[@]}"; do' in step
+    assert "to_jsonb(t)::text" in step
+    assert 'test "$source_digest" = "$target_digest"' in step
+    assert "SECURITY FAILURE: independent cluster row digest differs" in step
