@@ -198,3 +198,21 @@ def test_independent_cluster_restore_checks_all_tenant_policies():
     assert 'test -z "$disabled_rls"' in independent
     assert 'source_catalog' in independent and 'target_catalog' in independent
     assert 'test -n "$source_catalog" && test "$source_catalog" = "$target_catalog"' in independent
+
+
+def test_independent_restore_rejects_service_role_membership_drift():
+    """Prevent cluster-global role membership grants from escaping recovery checks."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "postgres-rls.yml").read_text(encoding="utf-8")
+    independent = workflow.split("name: Rehearse restore on independent PostgreSQL cluster with global roles", 1)[1]
+    independent = independent.split("name: Upload secure synthetic UI screenshots", 1)[0]
+    for fragment in (
+        "FROM pg_auth_members",
+        "m.admin_option, m.inherit_option, m.set_option",
+        "member.rolname IN ('merchant_auth','merchant_runtime')",
+        'test "$source_memberships" = "$target_memberships"',
+        'test -z "$source_memberships"',
+        "SECURITY FAILURE: independent cluster service-role memberships differ",
+    ):
+        assert fragment in independent, f"Independent restore membership guard missing: {fragment}"
