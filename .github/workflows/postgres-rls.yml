@@ -258,6 +258,20 @@ jobs:
             docker exec -i "$target_container" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1
           docker exec "$source_container" pg_dump -U postgres -d merchantscope_test -n ms -Fc > "$RUNNER_TEMP/ci-independent.dump"
           docker exec -i "$target_container" pg_restore --exit-on-error -U postgres -d merchantscope_restore < "$RUNNER_TEMP/ci-independent.dump"
+          # A fresh cluster can preserve roles and policies while silently losing
+          # tenant rows. Compare the complete source/target table inventory and
+          # canonical row content, not just a single RLS flag.
+          inventory_sql="SELECT coalesce(string_agg(tablename, ',' ORDER BY tablename), '') FROM pg_tables WHERE schemaname='ms'"
+          source_inventory="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$inventory_sql")"
+          target_inventory="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$inventory_sql")"
+          test -n "$source_inventory" && test "$source_inventory" = "$target_inventory" || { echo "SECURITY FAILURE: independent cluster table inventory differs"; exit 1; }
+          IFS=',' read -ra restored_tables <<< "$source_inventory"
+          for table in "${restored_tables[@]}"; do
+            digest_sql="SELECT md5(coalesce(string_agg(to_jsonb(t)::text, '|' ORDER BY to_jsonb(t)::text), '')) FROM ms.$table AS t"
+            source_digest="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$digest_sql")"
+            target_digest="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$digest_sql")"
+            test "$source_digest" = "$target_digest" || { echo "SECURITY FAILURE: independent cluster row digest differs: $table"; exit 1; }
+          done
           for role in merchant_auth merchant_runtime; do
             source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
             target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT rolcanlogin::text || ':' || rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='$role'")"
