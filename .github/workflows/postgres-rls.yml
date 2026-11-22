@@ -329,6 +329,22 @@ jobs:
             allowed="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$definer_runtime_sql")"
             test "$allowed" = "ms.has_role(ms.member_role),ms.is_member()" || { echo "SECURITY FAILURE: independent cluster runtime SECURITY DEFINER allowlist drift: $allowed"; exit 1; }
           done
+          # Independent recovery must preserve active audit and guard triggers,
+          # not merely rows, RLS policies and SECURITY DEFINER grants.
+          # Compare full non-internal trigger inventory, definitions and enablement.
+          trigger_catalog_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s', c.relname, t.tgname, t.tgenabled, pg_get_triggerdef(t.oid)), E'\\n' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal"
+          source_triggers="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$trigger_catalog_sql")"
+          target_triggers="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$trigger_catalog_sql")"
+          test -n "$source_triggers" && test "$source_triggers" = "$target_triggers" || { echo "SECURITY FAILURE: independent cluster trigger catalog differs"; exit 1; }
+          # Parity alone is insufficient if both source and restore are insecure.
+          # Enforce the migration-defined audit/guard trigger bindings and events.
+          trigger_safety_sql="SELECT coalesce(string_agg(c.relname || ':' || t.tgname || ':' || t.tgtype::text || ':' || t.tgenabled, ',' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND (t.tgname LIKE 'audit_%' OR t.tgname IN ('recommendations_guard','leads_guard','candidate_guard'))"
+          expected_safe_triggers="assessments:audit_assessments:29:O,channels:audit_channels:29:O,evidence:audit_evidence:29:O,leads:audit_leads:29:O,leads:leads_guard:23:O,merchants:audit_merchants:29:O,recommendation_evidence:audit_recommendation_evidence:29:O,recommendations:audit_recommendations:29:O,recommendations:recommendations_guard:23:O,research_candidates:audit_candidates:21:O,research_candidates:candidate_guard:23:O"
+          for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
+            IFS=: read -r cluster database <<< "$cluster_db"
+            safe_triggers="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$trigger_safety_sql")"
+            test "$safe_triggers" = "$expected_safe_triggers" || { echo "SECURITY FAILURE: independent recovery audit/guard trigger enforcement drift in $database"; exit 1; }
+          done
           echo "PASS: disposable independent PostgreSQL cluster roles, schema, RLS and auth grants."
 
       - name: Upload secure synthetic UI screenshots
