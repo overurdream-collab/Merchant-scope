@@ -216,3 +216,27 @@ def test_independent_restore_rejects_service_role_membership_drift():
         "SECURITY FAILURE: independent cluster service-role memberships differ",
     ):
         assert fragment in independent, f"Independent restore membership guard missing: {fragment}"
+
+
+def test_independent_restore_auth_function_acl_matrix():
+    """Require explicit positive and negative auth grants on the fresh cluster."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "postgres-rls.yml").read_text(encoding="utf-8")
+    independent = workflow.split("name: Rehearse restore on independent PostgreSQL cluster with global roles", 1)[1]
+    independent = independent.split("name: Upload secure synthetic UI screenshots", 1)[0]
+    for role, function, allowed in (
+        ("merchant_auth", "ms.login_account(text,uuid)", True),
+        ("merchant_auth", "ms.lookup_session(bytea)", True),
+        ("merchant_runtime", "ms.login_account(text,uuid)", False),
+        ("merchant_runtime", "ms.lookup_session(bytea)", False),
+        ("PUBLIC", "ms.login_account(text,uuid)", False),
+        ("PUBLIC", "ms.lookup_session(bytea)", False),
+    ):
+        expression = (
+            f"SELECT {' ' if allowed else 'NOT '}has_function_privilege("
+            f"'{role}', '{function}', 'EXECUTE')"
+        )
+        # Normalize the optional space after SELECT for exact SQL matching.
+        expression = expression.replace("SELECT  has_", "SELECT has_")
+        assert expression in independent, f"Independent restore auth ACL check missing: {role} {function}"
