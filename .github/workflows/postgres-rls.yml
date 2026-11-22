@@ -355,6 +355,13 @@ jobs:
             safe_triggers="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$trigger_safety_sql")"
             test "$safe_triggers" = "$expected_safe_triggers" || { echo "SECURITY FAILURE: independent recovery audit/guard trigger enforcement drift in $database"; exit 1; }
           done
+          # A trigger can keep its name and binding while its SECURITY DEFINER
+          # function body or search_path changes. Verify complete function
+          # definitions across the two physically independent PostgreSQL clusters.
+          function_catalog_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s', p.proname, pg_get_function_identity_arguments(p.oid), p.prosecdef, coalesce(array_to_string(p.proconfig, ','), '<default>'), pg_get_functiondef(p.oid)), E'\\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prokind IN ('f','p')"
+          source_functions="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$function_catalog_sql")"
+          target_functions="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$function_catalog_sql")"
+          test -n "$source_functions" && test "$source_functions" = "$target_functions" || { echo "SECURITY FAILURE: independent cluster function definitions or security configuration differ"; exit 1; }
           echo "PASS: disposable independent PostgreSQL cluster roles, schema, RLS and auth grants."
 
       - name: Upload secure synthetic UI screenshots
