@@ -310,7 +310,10 @@ jobs:
             "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass" \
             "SELECT NOT has_function_privilege('merchant_runtime', 'ms.login_account(text,uuid)', 'EXECUTE')" \
             "SELECT NOT has_function_privilege('merchant_runtime', 'ms.lookup_session(bytea)', 'EXECUTE')" \
-            "SELECT has_function_privilege('merchant_auth', 'ms.login_account(text,uuid)', 'EXECUTE')"; do
+            "SELECT has_function_privilege('merchant_auth', 'ms.login_account(text,uuid)', 'EXECUTE')" \
+            "SELECT has_function_privilege('merchant_auth', 'ms.lookup_session(bytea)', 'EXECUTE')" \
+            "SELECT NOT has_function_privilege('PUBLIC', 'ms.login_account(text,uuid)', 'EXECUTE')" \
+            "SELECT NOT has_function_privilege('PUBLIC', 'ms.lookup_session(bytea)', 'EXECUTE')"; do
             actual="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$sql")"
             test "$actual" = t || { echo "SECURITY FAILURE: independent cluster RLS/auth privilege check failed"; exit 1; }
           done
