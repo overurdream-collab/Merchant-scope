@@ -16,7 +16,12 @@ def test_generic_ci_excludes_live_postgres_baseline():
     assert "tests/test_pg_restore_rls_baseline.py::test_general_ci_executes_offline_postgres_gate_regressions" in ci
     assert "tests/test_pg_restore_rls_baseline.py::test_missing_postgres_dsn_fails_closed_in_github_actions" in ci
     assert "tests/test_pg_restore_rls_baseline.py::test_missing_psycopg_fails_closed_in_github_actions" in ci
-    assert "PG_TEST_DSN:" not in ci
+    # The generic test job must not acquire live DB credentials; the separate
+    # postgres-live-security job is intentionally provisioned with a real DSN.
+    generic_test_job = ci.split("\n  test:\n", 1)[1].split("\n  postgres-live-security:\n", 1)[0]
+    assert "PG_TEST_DSN:" not in generic_test_job
+    live_job = ci.split("\n  postgres-live-security:\n", 1)[1].split("\n  browser-smoke:\n", 1)[0]
+    assert "PG_TEST_DSN:" in live_job
 
 
 def test_dedicated_postgres_ci_runs_both_baselines():
