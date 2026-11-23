@@ -97,7 +97,7 @@ jobs:
         run: docker compose up --build -d
       - name: Check running container and public bind
         run: |
-          for attempt in $(seq 1 40); do
+          for _ in $(seq 1 40); do
             if curl --silent --fail http://127.0.0.1:8765/api/health >/tmp/ms-health.json; then
               break
             fi
