@@ -34,3 +34,21 @@ def test_postgres_security_workflow_requires_live_database_and_restore():
         "Rehearse restore on independent PostgreSQL cluster with global roles",
     ):
         assert command in workflow, f"PostgreSQL release gate lost: {command}"
+
+
+def test_general_ci_has_independent_live_postgres_security_gate():
+    """Fail closed if the separate PostgreSQL workflow is not scheduled by GitHub."""
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    assert "  postgres-live-security:\n" in ci
+    job = ci.split("  postgres-live-security:\n", 1)[1].split("\n  browser-smoke:", 1)[0]
+    assert "image: postgres:16" in job
+    assert "PG_TEST_DSN: postgresql://" in job
+    assert "continue-on-error:" not in job
+    assert "if:" not in job
+    for required in (
+        "tests/test_pg_schema.py",
+        "tests/test_pg_security_definer.py",
+        "tests/test_pg_schema_ownership.py",
+        "tests/test_pg_restore_rls_baseline.py",
+    ):
+        assert required in job, f"Live PostgreSQL gate missing {required}"
