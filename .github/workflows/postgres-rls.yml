@@ -246,10 +246,10 @@ jobs:
           trap 'docker rm -f "$target_container" >/dev/null 2>&1 || true' EXIT
           docker run -d --name "$target_container" -e POSTGRES_PASSWORD=test-password -e POSTGRES_DB=merchantscope_restore postgres:16
           for _ in $(seq 1 40); do
-            if docker exec "$target_container" pg_isready -U postgres -d merchantscope_restore >/dev/null 2>&1; then break; fi
+            if docker exec "$target_container" pg_isready -h 127.0.0.1 -U postgres -d merchantscope_restore >/dev/null 2>&1; then break; fi
             sleep 2
           done
-          docker exec "$target_container" pg_isready -U postgres -d merchantscope_restore
+          docker exec "$target_container" pg_isready -h 127.0.0.1 -U postgres -d merchantscope_restore
           # pg_dump -n ms omits cluster-global roles. Restore them separately
           # on the fresh cluster, without retaining any archive as an artifact.
           docker exec "$source_container" pg_dumpall -U postgres --globals-only > "$RUNNER_TEMP/ci-globals.sql"
