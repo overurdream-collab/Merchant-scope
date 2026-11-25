@@ -420,10 +420,13 @@ def marketing_proposal(mid:int,x_admin_token:str|None=Header(None)):
 
 class AgentRequest(BaseModel):
     mode: Literal["content","audience","competition","prospecting","proposal"]
+    allow_external_processing: bool=False
 
 @app.post("/api/merchants/{mid}/agent-draft")
 def agent_draft(mid:int, data:AgentRequest, x_admin_token:str|None=Header(None)):
     require(x_admin_token)
+    if not data.allow_external_processing:
+        raise HTTPException(403,"Explicit external DeepSeek processing approval required")
     with conn() as c:
         m=merchant(c,mid)
         e=rows(c,"SELECT * FROM evidence WHERE merchant_id=? ORDER BY observed_at DESC LIMIT 20",(mid,))
@@ -436,7 +439,7 @@ def agent_draft(mid:int, data:AgentRequest, x_admin_token:str|None=Header(None))
         assessment=c.execute("SELECT id FROM assessments WHERE merchant_id=? ORDER BY id DESC LIMIT 1",(mid,)).fetchone()
         assessment_id=assessment["id"] if assessment else c.execute("INSERT INTO assessments(merchant_id,result,created_at) VALUES(?,?,?)",(mid,json.dumps({"score":None,"note":"agent draft only"}),now())).lastrowid
         run_id=c.execute("INSERT INTO agent_runs(merchant_id,mode,summary,model,created_at) VALUES(?,?,?,?,?)",
-            (mid,data.mode,reviewed["summary"],os.environ.get("MERCHANTSCOPE_OLLAMA_MODEL",""),now())).lastrowid
+            (mid,data.mode,reviewed["summary"],os.environ.get("MERCHANTSCOPE_DEEPSEEK_MODEL",""),now())).lastrowid
         rec_ids=[]
         for r in reviewed["recommendations"]:
             rid=c.execute("INSERT INTO recommendations(merchant_id,assessment_id,problem,action,rationale,priority,evidence_ids) VALUES(?,?,?,?,?,?,?)",

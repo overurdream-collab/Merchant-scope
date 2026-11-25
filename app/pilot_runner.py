@@ -48,7 +48,7 @@ def prepare_review_packet(merchant,evidence,mode="content",runner=None):
         claims.append({"claim_id":f"{digest[:12]}-{i}","text":item["problem"]+" — "+item["action"],
                        "evidence_ids":[str(i) for i in item["evidence_ids"]],
                        "human_label":None,"reviewer_notes":None})
-    return {"case_id":digest,"merchant_name":merchant["name"],"mode":mode,"model_name":"local-ollama-or-injected",
+    return {"case_id":digest,"merchant_name":merchant["name"],"mode":mode,"model_name":"deepseek-or-injected",
             "sample_origin":"unverified_until_human_review","source_verified":False,
             "created_by":"operator-to-fill","reviewer_id":None,"reviewed_at":None,
             "evidence":[{"id":str(r["id"]),"source_url":r["source_url"],

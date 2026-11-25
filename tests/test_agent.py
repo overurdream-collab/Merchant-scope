@@ -22,17 +22,18 @@ def seed(c):
 
 def test_draft_without_model_is_unavailable(client,monkeypatch):
     mid,_=seed(client)
-    monkeypatch.delenv("MERCHANTSCOPE_OLLAMA_MODEL",raising=False)
-    r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
+    monkeypatch.delenv("DEEPSEEK_API_KEY",raising=False)
+    monkeypatch.delenv("MERCHANTSCOPE_DEEPSEEK_MODEL",raising=False)
+    r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content","allow_external_processing":True})
     assert r.status_code==503
 
 def test_model_draft_is_pending_review_only(client,monkeypatch):
     mid,eid=seed(client)
-    monkeypatch.setenv("MERCHANTSCOPE_OLLAMA_MODEL","test-model")
+    monkeypatch.setenv("MERCHANTSCOPE_DEEPSEEK_MODEL","test-model")
     def fake(mode,m,e):
         return {"summary":"ملخص غير معتمد","recommendations":[{"problem":"ضعف وصف المنتجات المعروضة","action":"تجربة منشورات تتضمن معلومات المنتج والسعر","rationale":"العينة المنشورة","priority":"high","evidence_ids":[eid]}]}
     monkeypatch.setattr(agent,"run_model",fake)
-    r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
+    r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content","allow_external_processing":True})
     assert r.status_code==200,r.text
     assert r.json()["status"]=="pending_review"
     detail=client.get(f"/api/merchants/{mid}",headers=H).json()
@@ -44,10 +45,18 @@ def test_model_draft_is_pending_review_only(client,monkeypatch):
 def test_hallucinated_evidence_cannot_create_draft(client,monkeypatch):
     mid,_=seed(client)
     monkeypatch.setattr(agent,"run_model",lambda *a:{"summary":"fake","recommendations":[{"problem":"مشكلة غير موثقة","action":"إجراء غير موثق","evidence_ids":[999999],"priority":"high"}]})
-    r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
+    r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content","allow_external_processing":True})
     assert r.status_code==422
     assert client.get(f"/api/merchants/{mid}/agent-history",headers=H).json()==[]
 
 def test_skill_manifest_is_pinned():
     assert len(agent.UPSTREAM_REVISION)==40
     assert agent.SKILL_REFERENCES["prospecting"]=="find-local-clients"
+
+def test_deepseek_external_processing_requires_explicit_permission(client,monkeypatch):
+    mid,_=seed(client)
+    calls=[]
+    monkeypatch.setattr(agent,"run_model",lambda *args:calls.append(1))
+    denied=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
+    assert denied.status_code==403
+    assert calls==[]

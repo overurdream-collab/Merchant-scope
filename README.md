@@ -5,7 +5,7 @@ Independent GitHub-native merchant intelligence project. **Not production-ready.
 ## Two distinct execution paths
 
 ### Legacy local SQLite pilot
-`app.main:app` uses a shared `X-Admin-Token` and SQLite. It has an Arabic RTL dashboard at `/`, heuristic evidence-based scoring, source-linked evidence, bounded CSV import preview/commit, human approval queue, proposal drafts, and optional locally configured Ollama drafting. No external platform scraping, licensed social API connector, automatic outreach or live market claims are provided. This path has **no production-grade identity, tenant isolation or independent reviewer authentication**. Never expose it publicly or store sensitive real merchant records.
+`app.main:app` uses a shared `X-Admin-Token` and SQLite. It has an Arabic RTL dashboard at `/`, heuristic evidence-based scoring, source-linked evidence, bounded CSV import preview/commit, human approval queue, proposal drafts, and optional locally configured legacy local model drafting. No external platform scraping, licensed social API connector, automatic outreach or live market claims are provided. This path has **no production-grade identity, tenant isolation or independent reviewer authentication**. Never expose it publicly or store sensitive real merchant records.
 
 Run locally (Python 3.11+):
 
