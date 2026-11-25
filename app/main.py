@@ -420,10 +420,13 @@ def marketing_proposal(mid:int,x_admin_token:str|None=Header(None)):
 
 class AgentRequest(BaseModel):
     mode: Literal["content","audience","competition","prospecting","proposal"]
+    allow_external_processing: bool=False
 
 @app.post("/api/merchants/{mid}/agent-draft")
 def agent_draft(mid:int, data:AgentRequest, x_admin_token:str|None=Header(None)):
     require(x_admin_token)
+    if not data.allow_external_processing:
+        raise HTTPException(403,"Explicit external DeepSeek processing approval required")
     with conn() as c:
         m=merchant(c,mid)
         e=rows(c,"SELECT * FROM evidence WHERE merchant_id=? ORDER BY observed_at DESC LIMIT 20",(mid,))
