@@ -63,7 +63,7 @@ def valid_url(s:str):
     labels = hostname.split(".")
     numeric_label = lambda label: bool(label) and (label.isascii() and label.isdigit() or label.lower().startswith("0x") and all(c in "0123456789abcdef" for c in label[2:].lower()) and len(label)>2)
     if (hostname in ("localhost",) or hostname.endswith((".localhost",".local",".internal",".test",".invalid",".onion",".home.arpa"))
-        or all(numeric_label(label) for label in labels)):
+        or (address is None and all(numeric_label(label) for label in labels))):
         raise HTTPException(422,"Private or non-public source URL")
     return s
 def norm(s:str):return " ".join(s.strip().lower().replace("أ","ا").replace("إ","ا").replace("آ","ا").split())
