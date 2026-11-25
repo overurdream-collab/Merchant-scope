@@ -22,7 +22,8 @@ def seed(c):
 
 def test_draft_without_model_is_unavailable(client,monkeypatch):
     mid,_=seed(client)
-    monkeypatch.delenv("DEEPSEEK_API_KEY",raising=False)\n    monkeypatch.delenv("MERCHANTSCOPE_DEEPSEEK_MODEL",raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY",raising=False)
+    monkeypatch.delenv("MERCHANTSCOPE_DEEPSEEK_MODEL",raising=False)
     r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
     assert r.status_code==503
 

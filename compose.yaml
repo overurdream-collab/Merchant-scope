@@ -13,7 +13,9 @@ services:
       MERCHANTSCOPE_DB: /data/merchant_scope.db
       # Browser connects via Docker's bridge address. Host port binds ONLY to 127.0.0.1.
       MERCHANTSCOPE_LOCAL_ONLY: "0"
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}\n      MERCHANTSCOPE_DEEPSEEK_MODEL: ${MERCHANTSCOPE_DEEPSEEK_MODEL:-}\n      MERCHANTSCOPE_OPENCODE_ENABLED: '0'
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      MERCHANTSCOPE_DEEPSEEK_MODEL: ${MERCHANTSCOPE_DEEPSEEK_MODEL:-}
+      MERCHANTSCOPE_OPENCODE_ENABLED: '0'
     volumes:
       - merchant_data:/data
     security_opt:
