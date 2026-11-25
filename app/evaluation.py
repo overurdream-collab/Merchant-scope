@@ -21,6 +21,7 @@ def evaluate(cases, minimum_cases=30):
     counts=Counter()
     known=set()
     mistakes=[]
+    real_verified=0
     for row in cases:
         case_id=row.get("case_id")
         if not isinstance(case_id,str) or not case_id or case_id in known:
@@ -34,6 +35,11 @@ def evaluate(cases, minimum_cases=30):
             raise ValueError(f"{case_id}: invalid review timestamp") from exc
         if reviewed.tzinfo is None or reviewed.astimezone(timezone.utc)>datetime.now(timezone.utc):
             raise ValueError(f"{case_id}: future/naive review date")
+        # Human provenance attestation is mandatory; software cannot prove its truth.
+        real_row=(row.get("sample_origin")=="real_consented" and row.get("source_verified") is True
+                  and row.get("created_by") and row["created_by"]!=row["reviewer_id"])
+        if real_row:real_verified+=1
+        else:mistakes.append({"case_id":case_id,"reason":"non_real_or_unverified_or_non_independent_case"})
         evidence=row.get("evidence")
         claims=row.get("claims")
         if not isinstance(evidence,list) or not isinstance(claims,list) or not claims:
@@ -57,10 +63,10 @@ def evaluate(cases, minimum_cases=30):
             if not grounded:mistakes.append({"case_id":case_id,"claim_index":n,"reason":"missing_or_unknown_citation"})
             if label!="supported":mistakes.append({"case_id":case_id,"claim_index":n,"reason":"reviewer_"+label})
         counts["cases"]+=1
-    ready=counts["cases"]>=minimum_cases
+    ready=counts["cases"]>=minimum_cases and real_verified==counts["cases"]
     n=counts["claims"]
     result={
-        "cases":counts["cases"],"claims":n,
+        "cases":counts["cases"],"real_verified_independent_cases":real_verified,"claims":n,
         "human_supported":counts["supported"],"human_partially_supported":counts["partially_supported"],
         "human_unsupported":counts["unsupported"],
         "citation_validity":round(counts["valid_citations"]/n,4) if n else None,
@@ -74,7 +80,7 @@ def evaluate(cases, minimum_cases=30):
         "limitations":"Labels are human opinions; accuracy cannot be certified without reviewer independence and real source verification."
     }
     if not ready:
-        result["blocker"]=f"Require at least {minimum_cases} independently reviewed cases, not {counts['cases']}"
+        result["blocker"]=f"Require {minimum_cases} real, source-verified, independently reviewed cases; verified: {real_verified}/{counts['cases']}"
     return result
 
 def seal_report(report):

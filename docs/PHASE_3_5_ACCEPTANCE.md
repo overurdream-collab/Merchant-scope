@@ -5,8 +5,8 @@
 - Use real sourced posts, written observations, documented timestamps, and authorized competitor evidence. User/customer permission may be needed depending on platform access and data rights.
 - Run the configured local Ollama model when actually available, keep every generated item `pending_review`.
 - Have an independent, identified reviewer label each claim **supported**, **partially_supported**, or **unsupported**, verifying citations against source pages. Do not score the model's own self-assessment.
-- `python scripts/evaluate_marketing.py path/to/reviews.jsonl --out evaluation.json` outputs a machine-readable, SHA256-sealed evaluation summary and returns nonzero unless the minimum 30 cases, 100% known citations, 0 unsupported/partially supported, and >=90% supported hold. This is a *strict software gate*, not proof that reviewers are qualified or genuinely independent.
-- Required JSONL per line: `{"case_id":"case-1","reviewer_id":"human-person-id","reviewed_at":"2026-11-25T12:00:00+03:00","evidence":[{"id":"post-1","source_url":"https://example.org/post"}],"claims":[{"text":"This post names a product","evidence_ids":["post-1"],"human_label":"supported"}]}`. Demonstration examples MUST be identified synthetic; there are no real human-labelled cases included in this repository.
+- `python scripts/evaluate_marketing.py path/to/reviews.jsonl --out evaluation.json` outputs a machine-readable, SHA256-sealed evaluation summary and returns nonzero unless the minimum 30 human-attested real consented cases with verified source and reviewer different from creator, 100% known citations, 0 unsupported/partially supported, and >=90% supported hold. This is a *strict software gate*, not proof that reviewers are qualified or genuinely independent.
+- Required JSONL per line: `{"case_id":"case-1","sample_origin":"real_consented","source_verified":true,"created_by":"analyst-id","reviewer_id":"different-human-person-id","reviewed_at":"2026-11-25T12:00:00+03:00","evidence":[{"id":"post-1","source_url":"https://example.org/post"}],"claims":[{"text":"This post names a product","evidence_ids":["post-1"],"human_label":"supported"}]}`. Demonstration examples MUST be identified synthetic; there are no real human-labelled cases included in this repository.
 
 ## Phase 4 — accountable prices, no guessed ROI
 - `app/commercial.py` builds quote drafts from independently **approved**, evidence-linked service lines.
@@ -34,3 +34,5 @@
 | Production acceptance | NOT APPROVED |
 
 Independent workstreams PR #9 (secure AI integration), #10 (local PostgreSQL deployment) and #8 (CSP hardening) remain open/draft; merge only after comparing against current development head and passing exact-head CI.
+
+**Do not substitute synthetic examples:** a synthetic sample always fails the release gate irrespective of perfect citations. Human attestations must themselves be independently audited; software cannot detect intentionally false attestations.
