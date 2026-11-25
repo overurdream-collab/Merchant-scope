@@ -22,13 +22,13 @@ def seed(c):
 
 def test_draft_without_model_is_unavailable(client,monkeypatch):
     mid,_=seed(client)
-    monkeypatch.delenv("MERCHANTSCOPE_OLLAMA_MODEL",raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY",raising=False)\n    monkeypatch.delenv("MERCHANTSCOPE_DEEPSEEK_MODEL",raising=False)
     r=client.post(f"/api/merchants/{mid}/agent-draft",headers=H,json={"mode":"content"})
     assert r.status_code==503
 
 def test_model_draft_is_pending_review_only(client,monkeypatch):
     mid,eid=seed(client)
-    monkeypatch.setenv("MERCHANTSCOPE_OLLAMA_MODEL","test-model")
+    monkeypatch.setenv("MERCHANTSCOPE_DEEPSEEK_MODEL","test-model")
     def fake(mode,m,e):
         return {"summary":"ملخص غير معتمد","recommendations":[{"problem":"ضعف وصف المنتجات المعروضة","action":"تجربة منشورات تتضمن معلومات المنتج والسعر","rationale":"العينة المنشورة","priority":"high","evidence_ids":[eid]}]}
     monkeypatch.setattr(agent,"run_model",fake)
