@@ -10,6 +10,12 @@ from app.pg_api import valid_url
     "https://[ff02::1]/source",
     "https://[ff0e::1]/source",
     "https://240.0.0.1/source",
+    "https://127.0.0.1/source",
+    "https://127.1/source",
+    "https://0177.0.0.1/source",
+    "https://0x7f.0.0.1/source",
+    "https://2130706433/source",
+    "https://8.8.8.8./source",
 ])
 def test_non_unicast_source_rejected(url):
     with pytest.raises(HTTPException) as error:
@@ -19,6 +25,7 @@ def test_non_unicast_source_rejected(url):
 
 @pytest.mark.parametrize("url", [
     "https://8.8.8.8/source",
+    "https://1.1.1.1:443/source",
     "https://[2606:4700:4700::1111]/source",
     "https://example.org/source",
 ])
