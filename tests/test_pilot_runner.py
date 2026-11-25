@@ -30,7 +30,7 @@ def test_no_permission_no_inference():
     def must_not_run(*args):
         called.append(1)
         return fake(*args)
-    with pytest.raises(ValueError,match="permission"):
+    with pytest.raises(ValueError,match="authorized collection"):
         prepare_review_packet({"name":"مشروع اختباري"},e,runner=must_not_run)
     assert called==[]
 
