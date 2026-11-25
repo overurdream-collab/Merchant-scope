@@ -54,7 +54,7 @@ def test_truncated_or_non_json_response_rejected(monkeypatch):
             return json.dumps({"choices":[{"finish_reason":self.finish,"message":{"content":self.content}}]}).encode()
     for data in [("length",'{"summary":"cut"}'),("stop","not JSON")]:
         with pytest.raises(HTTPException) as ex:
-            hybrid_ai.deepseek_json("safe",transport=lambda *a,d=data:Response(*d))
+            hybrid_ai.deepseek_json("safe",transport=lambda *a,d=data,**kw:Response(*d))
         assert ex.value.status_code==502
 
 def test_deepseek_does_not_leak_transport_exception(monkeypatch):
