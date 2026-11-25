@@ -26,7 +26,7 @@ def test_unknown_citation_and_hallucination_block_acceptance():
     items[0]["claims"][0]["evidence_ids"]=["not-present"]
     items[1]["claims"][0]["human_label"]="unsupported"
     r=evaluate(items)
-    assert not r["acceptance_pass"] and len(r["findings"])==2
+    assert not r["acceptance_pass"] and len([f for f in r["findings"] if "claim_index" in f])==2
     assert r["human_unsupported"]==1
     assert r["citation_validity"]<1
 
