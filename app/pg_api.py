@@ -44,7 +44,8 @@ def valid_url(s:str):
         address=ipaddress.ip_address(u.hostname)
     except ValueError:
         address=None
-    if address is not None and not address.is_global:
+    # Multicast addresses can report is_global=True but are not public unicast sources.
+    if address is not None and (not address.is_global or address.is_multicast or address.is_reserved):
         raise HTTPException(422,"Private or non-public source URL")
     hostname = u.hostname.lower().rstrip(".")
     # A source hostname must be an unambiguous public DNS name or global IP.
