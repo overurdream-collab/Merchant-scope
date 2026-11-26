@@ -39,3 +39,20 @@ def test_unknown_evidence_citation_does_not_produce_packet():
         prepare_review_packet({"name":"مشروع اختباري"},evidence(),
             runner=lambda *a:{"summary":"none","recommendations":[{"problem":"توصية غير مدعومة","action":"عمل توصية تسويقية",
                         "rationale":"مصدر غير موجود","evidence_ids":[9999]}]})
+
+
+@pytest.mark.parametrize("url", [
+    None, 123, "https://", "https://localhost/post",
+    "https://127.0.0.1/post", "https://[::1]/post",
+    "https://169.254.169.254/post", "https://user@example.org/post",
+    "https://example.org:bad/post", "https://example.org:8080/post",
+    "https://example.org/white space", "https://example.org\\@localhost/post",
+    "https://merchant.internal/post", "https://2130706433/post",
+])
+def test_invalid_source_url_rejected_before_model(url):
+    rows = evidence()
+    rows[0]["source_url"] = url
+    def must_not_run(*args):
+        pytest.fail("Invalid source reached model")
+    with pytest.raises(ValueError, match="HTTPS source URL"):
+        prepare_review_packet({"name": "Synthetic test"}, rows, runner=must_not_run)
