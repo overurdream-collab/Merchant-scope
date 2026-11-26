@@ -5,6 +5,26 @@ No web scraping, outreach, fake merchant data, or automatic approval.
 from datetime import datetime, timezone
 import hashlib
 import json
+import ipaddress
+from urllib.parse import urlsplit
+
+
+def _valid_source_url(value):
+    if not isinstance(value, str) or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value) or '\\' in value:
+        return False
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        if parsed.scheme != 'https' or not host or parsed.username is not None or parsed.password is not None or parsed.port not in (None, 443):
+            return False
+        try:
+            return ipaddress.ip_address(host).is_global
+        except ValueError:
+            labels = host.rstrip('.').encode('idna').decode('ascii').lower().split('.')
+            return len(labels) > 1 and labels[-1] not in ('localhost', 'local', 'internal', 'test', 'invalid') and not labels[-1].isdigit() and all(label and len(label) <= 63 and label[0] != '-' and label[-1] != '-' and all(c.isalnum() or c == '-' for c in label) for label in labels)
+    except (ValueError, UnicodeError):
+        return False
+
 from . import agent
 
 def prepare_review_packet(merchant,evidence,mode="content",runner=None):
@@ -30,7 +50,7 @@ def prepare_review_packet(merchant,evidence,mode="content",runner=None):
         except (ValueError,AttributeError) as exc:raise ValueError("Invalid observation timestamp") from exc
         if stamp.tzinfo is None or stamp>datetime.now(timezone.utc):
             raise ValueError("Timestamp missing timezone or in future")
-        if not row.get("source_url","").startswith("https://"):
+        if not _valid_source_url(row.get("source_url")):
             raise ValueError("HTTPS source URL required")
         if not (row.get("text") or "").strip():
             raise ValueError("No observable content to analyze")
