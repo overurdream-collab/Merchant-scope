@@ -241,3 +241,19 @@ def test_independent_restore_auth_function_acl_matrix():
         # Normalize the optional space after SELECT for exact SQL matching.
         expression = expression.replace("SELECT  has_", "SELECT has_")
         assert expression in independent, f"Independent restore auth ACL check missing: {role} {function}"
+
+
+def test_independent_restore_trigger_catalog_char_cast():
+    """PostgreSQL catalog tgenabled is internal char, not SQL text."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "postgres-rls.yml").read_text(encoding="utf-8")
+    query = next(line for line in workflow.splitlines() if 'trigger_safety_sql="' in line)
+    assert "t.tgtype::text || ':' || t.tgenabled::text" in query
+    assert "ORDER BY c.relname, t.tgname" in query
+    dsn = os.environ.get("PG_TEST_DSN")
+    if dsn:
+        import psycopg
+        with psycopg.connect(dsn) as conn:
+            sql = query.strip().split('="', 1)[1][:-1]
+            assert conn.execute(sql).fetchone()[0], "Trigger safety inventory must not be empty"
