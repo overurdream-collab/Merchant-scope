@@ -13,7 +13,7 @@ def test_independent_restore_enforces_catalog_wide_definer_acl():
     assert "definer_public_sql=" in independent
     assert "definer_runtime_sql=" in independent
     assert "n.nspname='ms' AND p.prosecdef" in independent
-    assert "has_function_privilege('PUBLIC', p.oid, 'EXECUTE')" in independent
+    assert "has_function_privilege(0::oid, p.oid, 'EXECUTE')" in independent
     assert "has_function_privilege('merchant_runtime', p.oid, 'EXECUTE')" in independent
     assert 'for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"' in independent
     assert 'test -z "$exposed"' in independent
