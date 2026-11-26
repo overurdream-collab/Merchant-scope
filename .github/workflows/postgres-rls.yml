@@ -112,7 +112,7 @@ jobs:
             test -z "$disabled_rls" || { echo "SECURITY FAILURE: tenant tables without RLS in $database: $disabled_rls"; exit 1; }
             # Identity tables are global/credential-scoped, not tenant RLS tables.
             # Require their explicit ACL boundary on both clusters, including column grants.
-            identity_acl_sql="SELECT count(*)=2 AND bool_and(NOT has_any_column_privilege('merchant_runtime', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_runtime', c.oid, 'DELETE,TRUNCATE,TRIGGER') AND NOT has_any_column_privilege('PUBLIC', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('PUBLIC', c.oid, 'DELETE,TRUNCATE,TRIGGER') AND CASE WHEN c.relname='user_accounts' THEN NOT has_any_column_privilege('merchant_auth', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER') ELSE has_table_privilege('merchant_auth', c.oid, 'SELECT') AND has_table_privilege('merchant_auth', c.oid, 'INSERT') AND has_table_privilege('merchant_auth', c.oid, 'UPDATE') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER,REFERENCES') END) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relname IN ('user_accounts','sessions') AND c.relkind='r'"
+            identity_acl_sql="SELECT count(*)=2 AND bool_and(NOT has_any_column_privilege('merchant_runtime', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_runtime', c.oid, 'DELETE,TRUNCATE,TRIGGER') AND NOT has_any_column_privilege(0::oid, c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege(0::oid, c.oid, 'DELETE,TRUNCATE,TRIGGER') AND CASE WHEN c.relname='user_accounts' THEN NOT has_any_column_privilege('merchant_auth', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER') ELSE has_table_privilege('merchant_auth', c.oid, 'SELECT') AND has_table_privilege('merchant_auth', c.oid, 'INSERT') AND has_table_privilege('merchant_auth', c.oid, 'UPDATE') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER,REFERENCES') END) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relname IN ('user_accounts','sessions') AND c.relkind='r'"
             identity_safe="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$identity_acl_sql")"
             test "$identity_safe" = t || { echo "SECURITY FAILURE: identity table ACL boundary in $database"; exit 1; }
           done
@@ -144,8 +144,8 @@ jobs:
             "SELECT NOT has_function_privilege('merchant_runtime', 'ms.lookup_session(bytea)', 'EXECUTE')" \
             "SELECT has_function_privilege('merchant_auth', 'ms.login_account(text,uuid)', 'EXECUTE')" \
             "SELECT has_function_privilege('merchant_auth', 'ms.lookup_session(bytea)', 'EXECUTE')" \
-            "SELECT NOT has_function_privilege('PUBLIC', 'ms.login_account(text,uuid)', 'EXECUTE')" \
-            "SELECT NOT has_function_privilege('PUBLIC', 'ms.lookup_session(bytea)', 'EXECUTE')"; do
+            "SELECT NOT has_function_privilege(0::oid, 'ms.login_account(text,uuid)', 'EXECUTE')" \
+            "SELECT NOT has_function_privilege(0::oid, 'ms.lookup_session(bytea)', 'EXECUTE')"; do
             for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
               IFS=: read -r cluster database <<< "$cluster_db"
               actual="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$sql")"
@@ -155,7 +155,7 @@ jobs:
           # Compare and enforce the full SECURITY DEFINER execution boundary on
           # both clusters. Checking only two authentication routines misses newly
           # introduced privileged functions with accidental PUBLIC/runtime grants.
-          definer_public_sql="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege('PUBLIC', p.oid, 'EXECUTE')"
+          definer_public_sql="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege(0::oid, p.oid, 'EXECUTE')"
           definer_runtime_sql="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege('merchant_runtime', p.oid, 'EXECUTE')"
           for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
             IFS=: read -r cluster database <<< "$cluster_db"
