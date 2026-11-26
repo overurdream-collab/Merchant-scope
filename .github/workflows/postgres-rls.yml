@@ -105,11 +105,16 @@ jobs:
           # Matching catalogs are not proof of safety: a source with RLS disabled
           # would restore the same insecure configuration and pass parity.
           # Reject disabled RLS on BOTH independent clusters, not just the target.
-          disabled_rls_sql="SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity"
+          disabled_rls_sql="SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity AND c.relname NOT IN ('user_accounts','sessions')"
           for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
             IFS=: read -r cluster database <<< "$cluster_db"
             disabled_rls="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$disabled_rls_sql")"
             test -z "$disabled_rls" || { echo "SECURITY FAILURE: tenant tables without RLS in $database: $disabled_rls"; exit 1; }
+            # Identity tables are global/credential-scoped, not tenant RLS tables.
+            # Require their explicit ACL boundary on both clusters, including column grants.
+            identity_acl_sql="SELECT count(*)=2 AND bool_and(NOT has_any_column_privilege('merchant_runtime', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_runtime', c.oid, 'DELETE,TRUNCATE,TRIGGER') AND NOT has_any_column_privilege('PUBLIC', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('PUBLIC', c.oid, 'DELETE,TRUNCATE,TRIGGER') AND CASE WHEN c.relname='user_accounts' THEN NOT has_any_column_privilege('merchant_auth', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER') ELSE has_table_privilege('merchant_auth', c.oid, 'SELECT') AND has_table_privilege('merchant_auth', c.oid, 'INSERT') AND has_table_privilege('merchant_auth', c.oid, 'UPDATE') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER,REFERENCES') END) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relname IN ('user_accounts','sessions') AND c.relkind='r'"
+            identity_safe="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$identity_acl_sql")"
+            test "$identity_safe" = t || { echo "SECURITY FAILURE: identity table ACL boundary in $database"; exit 1; }
           done
           # Role memberships are cluster-global, absent from schema-only pg_dump.
           # Compare membership grants after pg_dumpall globals restore, including
