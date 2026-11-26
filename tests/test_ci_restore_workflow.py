@@ -24,9 +24,9 @@ def test_independent_restore_identity_exceptions_require_acl_checks():
     independent = workflow.split("name: Rehearse restore on independent PostgreSQL cluster with global roles", 1)[1]
     assert "AND NOT c.relrowsecurity AND c.relname NOT IN ('user_accounts','sessions')" in independent
     assert "SELECT count(*)=2 AND bool_and(" in independent
-    for role in ("merchant_runtime", "PUBLIC"):
-        assert f"NOT has_any_column_privilege('{role}', c.oid" in independent
-        assert f"NOT has_table_privilege('{role}', c.oid" in independent
+    for role in ("\'merchant_runtime\'", "0::oid"):
+        assert f"NOT has_any_column_privilege({role}, c.oid" in independent
+        assert f"NOT has_table_privilege({role}, c.oid" in independent
     assert "WHEN c.relname='user_accounts' THEN NOT has_any_column_privilege('merchant_auth'" in independent
     for privilege in ("SELECT", "INSERT", "UPDATE"):
         assert f"has_table_privilege('merchant_auth', c.oid, '{privilege}')" in independent
