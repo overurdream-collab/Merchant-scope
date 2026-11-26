@@ -30,9 +30,12 @@
 | 30 model results reviewed by humans | NOT DONE |
 | Reliable market and competitor analytics on real posts | NOT DONE |
 | Reviewable, evidence-grounded offer/pricing engine | Draft helper implemented |
-| Security and recovery synthetic CI | Existing checks, latest PostgreSQL workflow currently requires repair |
+| Security and recovery development CI | Both workflows passed on `33e59c9a013bbd4af7e81c2df1851aae04a90fb7`; not production sign-off |
 | Production acceptance | NOT APPROVED |
 
 Independent workstreams PR #9 (secure AI integration), #10 (local PostgreSQL deployment) and #8 (CSP hardening) remain open/draft; merge only after comparing against current development head and passing exact-head CI.
 
 **Do not substitute synthetic examples:** a synthetic sample always fails the release gate irrespective of perfect citations. Human attestations must themselves be independently audited; software cannot detect intentionally false attestations.
+
+### Verified development evidence — 2026-11-27
+Both MerchantScope CI and MerchantScope PostgreSQL RLS reported success for commit `33e59c9a013bbd4af7e81c2df1851aae04a90fb7`. [Commit checks](https://github.com/overurdream-collab/Merchant-scope/commit/33e59c9a013bbd4af7e81c2df1851aae04a90fb7/checks). This historical evidence does not certify later commits, real merchant data, or independent security review. Recheck the exact release head; launch remains HOLD.
