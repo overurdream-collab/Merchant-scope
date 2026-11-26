@@ -233,9 +233,10 @@ def test_independent_restore_auth_function_acl_matrix():
         ("PUBLIC", "ms.login_account(text,uuid)", False),
         ("PUBLIC", "ms.lookup_session(bytea)", False),
     ):
+        role_sql = "0::oid" if role == "PUBLIC" else f"'{role}'"
         expression = (
             f"SELECT {' ' if allowed else 'NOT '}has_function_privilege("
-            f"'{role}', '{function}', 'EXECUTE')"
+            f"{role_sql}, '{function}', 'EXECUTE')"
         )
         # Normalize the optional space after SELECT for exact SQL matching.
         expression = expression.replace("SELECT  has_", "SELECT has_")
