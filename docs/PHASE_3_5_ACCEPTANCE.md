@@ -39,3 +39,6 @@ Independent workstreams PR #9 (secure AI integration), #10 (local PostgreSQL dep
 
 ### Verified development evidence — 2026-11-27
 Both MerchantScope CI and MerchantScope PostgreSQL RLS reported success for commit `33e59c9a013bbd4af7e81c2df1851aae04a90fb7`. [Commit checks](https://github.com/overurdream-collab/Merchant-scope/commit/33e59c9a013bbd4af7e81c2df1851aae04a90fb7/checks). This historical evidence does not certify later commits, real merchant data, or independent security review. Recheck the exact release head; launch remains HOLD.
+
+### Collection attestation hardening
+Pilot packets require nonblank textual verifier and collection-permission attestations without control characters, and retain the supplied permission and source kind for independent review. This is structural validation only; it does not establish legal permission or verify the source. Regression tests cover malformed attestations and preservation. Exact-head CI must pass before claiming test acceptance.

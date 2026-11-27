@@ -41,7 +41,7 @@ def prepare_review_packet(merchant,evidence,mode="content",runner=None):
             raise ValueError("Evidence ID missing or duplicated")
         if row.get("source_kind") not in ("actual_post","actual_merchant_page","actual_competitor_post"):
             raise ValueError("Directory listings alone are not valid post evidence")
-        if not row.get("verified_by") or not row.get("collection_permission"):
+        if not all(isinstance(row.get(key), str) and row[key].strip() and not any(ord(ch) < 32 or ord(ch) == 127 for ch in row[key]) for key in ("verified_by", "collection_permission")):
             raise ValueError("Source verification and authorized collection attestation required")
         observed=row.get("observed_at")
         if not observed:
@@ -72,7 +72,8 @@ def prepare_review_packet(merchant,evidence,mode="content",runner=None):
             "sample_origin":"unverified_until_human_review","source_verified":False,
             "created_by":"operator-to-fill","reviewer_id":None,"reviewed_at":None,
             "evidence":[{"id":str(r["id"]),"source_url":r["source_url"],
-                         "observed_at":r["observed_at"],"verified_by":r["verified_by"]} for r in checked],
+                         "observed_at":r["observed_at"],"verified_by":r["verified_by"],
+                         "collection_permission":r["collection_permission"],"source_kind":r["source_kind"]} for r in checked],
             "claims":claims,"summary":draft["summary"],
             "status":"pending_independent_human_review",
             "notice":"Human reviewer must inspect actual sources, enter real_consented status and labels; no outreach."}

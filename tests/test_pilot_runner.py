@@ -56,3 +56,22 @@ def test_invalid_source_url_rejected_before_model(url):
         pytest.fail("Invalid source reached model")
     with pytest.raises(ValueError, match="HTTPS source URL"):
         prepare_review_packet({"name": "Synthetic test"}, rows, runner=must_not_run)
+
+
+@pytest.mark.parametrize("field", ["verified_by", "collection_permission"])
+@pytest.mark.parametrize("value", [None, True, 1, [], {}, "", "   ", "valid\x00text", "valid\ntext"])
+def test_invalid_attestation_never_reaches_model(field, value):
+    rows = evidence()
+    rows[0][field] = value
+    def must_not_run(*args):
+        pytest.fail("Invalid attestation reached model")
+    with pytest.raises(ValueError, match="authorized collection"):
+        prepare_review_packet({"name": "Synthetic test"}, rows, runner=must_not_run)
+
+
+def test_review_packet_retains_collection_attestation():
+    rows = evidence()
+    packet = prepare_review_packet({"name": "Synthetic test"}, rows, runner=fake)
+    for key in ("collection_permission", "source_kind", "verified_by"):
+        assert packet["evidence"][0][key] == rows[0][key]
+    assert packet["source_verified"] is False
