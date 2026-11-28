@@ -44,3 +44,6 @@ Official documentation: https://opencode.ai/docs/cli/commands/ and https://api-d
 
 ## Explicit external processing approval
 The local-pilot UI requires an unchecked-by-default consent control for each DeepSeek marketing request. API calls to `/api/merchants/{id}/agent-draft` require `allow_external_processing: true`, otherwise return HTTP 403 **before calling any external provider**. Only share permitted business content, and obtain consent when needed; this checkbox is not a substitute for privacy-law compliance or authorization from the data owner.
+
+### Provider redirect policy
+The default DeepSeek HTTP transport rejects redirects (301/302/303/307/308) rather than forwarding credentials or evidence. Regression test: `test_deepseek_redirects_fail_closed`. Implementation commit `ec075be77085adfa259c53cbe11d732e4d50acc6`; test commit `4b6471b1eea7875da28c976246a899e3aea13ba0`. Exact-head CI verification pending; mocked tests do not establish live provider or production acceptance.
