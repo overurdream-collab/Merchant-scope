@@ -9,7 +9,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import URLError, HTTPError
 from fastapi import HTTPException
 
@@ -44,6 +44,12 @@ def _require_deepseek():
         raise HTTPException(503,"Configured DeepSeek model identifier is invalid")
     return key,model
 
+class _RejectRedirects(HTTPRedirectHandler):
+    """Never forward provider credentials or evidence to a redirect target."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise HTTPError(req.full_url, code, "Provider redirect rejected", headers, fp)
+
+
 def deepseek_json(prompt, *, max_chars=19000, transport=None):
     key,model=_require_deepseek()
     if not isinstance(prompt,str) or not 1<=len(prompt)<=max_chars:
@@ -59,7 +65,7 @@ def deepseek_json(prompt, *, max_chars=19000, transport=None):
                 data=json.dumps(payload,ensure_ascii=False).encode("utf-8"),
                 headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},
                 method="POST")
-    transport=transport or urlopen
+    transport=transport or build_opener(_RejectRedirects()).open
     try:
         with transport(req,timeout=45) as resp:
             raw=resp.read(250001)
