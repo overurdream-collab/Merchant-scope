@@ -58,3 +58,10 @@ def test_attested_real_independent_cases_are_eligible_for_math_gate():
     assert r["eligible_for_release_evaluation"] and r["acceptance_pass"]
     sample[0]["reviewer_id"]=sample[0]["created_by"]
     assert evaluate(sample)["acceptance_pass"] is False
+
+@pytest.mark.parametrize("url", [None, "", "http://example.org/post", "https://127.0.0.1/post", "https://user@example.org/post", "https://example.org:444/post"])
+def test_invalid_evidence_url_cannot_pass_evaluation(url):
+    item = case(1)
+    item["evidence"][0]["source_url"] = url
+    with pytest.raises(ValueError, match="source URL"):
+        evaluate([item])
