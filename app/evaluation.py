@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+from .pilot_runner import _valid_source_url
 
 ALLOWED={"supported","unsupported","partially_supported"}
 def load_jsonl(path):
@@ -47,6 +48,8 @@ def evaluate(cases, minimum_cases=30):
         allowed={e["id"] for e in evidence if isinstance(e,dict) and isinstance(e.get("id"),str)}
         if len(allowed)!=len(evidence):
             raise ValueError(f"{case_id}: duplicate/missing evidence IDs")
+        if any(not _valid_source_url(e.get("source_url")) for e in evidence):
+            raise ValueError(f"{case_id}: invalid source URL")
         for n,claim in enumerate(claims):
             if not isinstance(claim,dict) or claim.get("human_label") not in ALLOWED:
                 raise ValueError(f"{case_id}: claim {n} lacks a valid human label")
