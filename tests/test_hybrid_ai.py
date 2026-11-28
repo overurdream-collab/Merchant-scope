@@ -86,3 +86,19 @@ def test_opencode_opt_in_and_safe_argv(tmp_path,monkeypatch):
 def test_code_agent_cannot_receive_marketing_requests(tmp_path):
     with pytest.raises(ValueError):
         hybrid_ai.opencode_review("content","Analyse merchants",tmp_path)
+
+
+@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+def test_deepseek_redirects_fail_closed(monkeypatch, code):
+    from urllib.error import HTTPError
+    monkeypatch.setenv("DEEPSEEK_API_KEY","test-key")
+    monkeypatch.setenv("MERCHANTSCOPE_DEEPSEEK_MODEL","test-model")
+    def opener(handler):
+        def send(req, timeout):
+            handler.redirect_request(req, None, code, "redirect", {}, "https://other.example/collect")
+            pytest.fail("Provider redirect was not rejected")
+        return SimpleNamespace(open=send)
+    monkeypatch.setattr(hybrid_ai,"build_opener",opener)
+    with pytest.raises(HTTPException) as ex:
+        hybrid_ai.deepseek_json("authorized evidence")
+    assert ex.value.status_code==503
