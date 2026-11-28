@@ -1,0 +1,200 @@
+name: MerchantScope PostgreSQL RLS
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  postgres-security:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: merchantscope_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d merchantscope_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-dev.txt "psycopg[binary]>=3.2,<4"
+      - run: python -m pytest -q tests/test_pg_schema.py tests/test_pg_security_definer.py tests/test_pg_schema_ownership.py
+      - name: Install browser acceptance tooling
+        run: |
+          pip install "playwright>=1.51,<2"
+          python -m playwright install --with-deps chromium
+      - name: Secure PostgreSQL UI end-to-end smoke
+        env:
+          MERCHANTSCOPE_SCREENSHOT_DIR: secure-ui-artifacts
+        run: python tests/pg_browser_smoke.py
+      - name: Verify core tenant RLS and policy baseline on source database
+        run: python -m pytest -q tests/test_pg_restore_rls_baseline.py
+      - name: Rehearse PostgreSQL backup and restore into separate disposable database
+        shell: bash
+        run: bash scripts/ci_postgres_restore.sh "${{ job.services.postgres.id }}"
+
+      - name: Verify core tenant RLS and policy baseline on restored database
+        # Read-only: do not rerun migrations, which could conceal restore defects.
+        env:
+          PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore
+        run: python -m pytest -q tests/test_pg_restore_rls_baseline.py
+
+      - name: Validate restored SECURITY DEFINER routines with live role checks
+        # Catalog parity alone is insufficient: execute the negative permission
+        # and pinned search_path tests against the independent restored database.
+        env:
+          PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_restore
+        run: python -m pytest -q tests/test_pg_security_definer.py tests/test_pg_schema_ownership.py
+
+      - name: Rehearse restore on independent PostgreSQL cluster with global roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_container="${{ job.services.postgres.id }}"
+          target_container="merchantscope-independent-restore"
+          trap 'docker rm -f "$target_container" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$target_container" -e POSTGRES_PASSWORD=test-password -e POSTGRES_DB=merchantscope_restore postgres:16
+          for _ in $(seq 1 40); do
+            if docker exec "$target_container" pg_isready -h 127.0.0.1 -U postgres -d merchantscope_restore >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec "$target_container" pg_isready -h 127.0.0.1 -U postgres -d merchantscope_restore
+          # pg_dump -n ms omits cluster-global roles. Restore them separately
+          # on the fresh cluster, without retaining any archive as an artifact.
+          docker exec "$source_container" pg_dumpall -U postgres --globals-only > "$RUNNER_TEMP/ci-globals.sql"
+          # The destination bootstrap already creates postgres; avoid duplicate CREATE ROLE.
+          sed '/^CREATE ROLE postgres;$/d' "$RUNNER_TEMP/ci-globals.sql" |
+            docker exec -i "$target_container" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1
+          docker exec "$source_container" pg_dump -U postgres -d merchantscope_test -n ms -Fc > "$RUNNER_TEMP/ci-independent.dump"
+          docker exec -i "$target_container" pg_restore --exit-on-error -U postgres -d merchantscope_restore < "$RUNNER_TEMP/ci-independent.dump"
+          # A fresh cluster can preserve roles and policies while silently losing
+          # tenant rows. Compare the complete source/target table inventory and
+          # canonical row content, not just a single RLS flag.
+          inventory_sql="SELECT coalesce(string_agg(tablename, ',' ORDER BY tablename), '') FROM pg_tables WHERE schemaname='ms'"
+          source_inventory="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$inventory_sql")"
+          target_inventory="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$inventory_sql")"
+          test -n "$source_inventory" && test "$source_inventory" = "$target_inventory" || { echo "SECURITY FAILURE: independent cluster table inventory differs"; exit 1; }
+          IFS=',' read -ra restored_tables <<< "$source_inventory"
+          for table in "${restored_tables[@]}"; do
+            digest_sql="SELECT md5(coalesce(string_agg(to_jsonb(t)::text, '|' ORDER BY to_jsonb(t)::text), '')) FROM ms.$table AS t"
+            source_digest="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$digest_sql")"
+            target_digest="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$digest_sql")"
+            test "$source_digest" = "$target_digest" || { echo "SECURITY FAILURE: independent cluster row digest differs: $table"; exit 1; }
+          done
+          # A row-perfect restore can still silently lose tenant policies or RLS
+          # on tables other than research_candidates. Compare the full catalog
+          # across independent clusters and fail if any tenant table lacks RLS.
+          tenant_rls_sql="SELECT coalesce(string_agg(c.relname || ':' || c.relrowsecurity::text || ':' || c.relforcerowsecurity::text, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p')"
+          tenant_policies_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s:%s:%s', tablename, policyname, permissive, roles::text, cmd, coalesce(qual,''), coalesce(with_check,'')), E'\\n' ORDER BY tablename, policyname), '') FROM pg_policies WHERE schemaname='ms'"
+          for sql in "$tenant_rls_sql" "$tenant_policies_sql"; do
+            source_catalog="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$sql")"
+            target_catalog="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$sql")"
+            test -n "$source_catalog" && test "$source_catalog" = "$target_catalog" || { echo "SECURITY FAILURE: independent cluster tenant RLS/policy catalog differs"; exit 1; }
+          done
+          # Matching catalogs are not proof of safety: a source with RLS disabled
+          # would restore the same insecure configuration and pass parity.
+          # Reject disabled RLS on BOTH independent clusters, not just the target.
+          disabled_rls_sql="SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity AND c.relname NOT IN ('user_accounts','sessions')"
+          for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
+            IFS=: read -r cluster database <<< "$cluster_db"
+            disabled_rls="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$disabled_rls_sql")"
+            test -z "$disabled_rls" || { echo "SECURITY FAILURE: tenant tables without RLS in $database: $disabled_rls"; exit 1; }
+            # Identity tables are global/credential-scoped, not tenant RLS tables.
+            # Require their explicit ACL boundary on both clusters, including column grants.
+            identity_acl_sql="SELECT count(*)=2 AND bool_and(NOT has_any_column_privilege('merchant_runtime', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_runtime', c.oid, 'DELETE,TRUNCATE,TRIGGER') AND NOT has_any_column_privilege(0::oid, c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege(0::oid, c.oid, 'DELETE,TRUNCATE,TRIGGER') AND CASE WHEN c.relname='user_accounts' THEN NOT has_any_column_privilege('merchant_auth', c.oid, 'SELECT,INSERT,UPDATE,REFERENCES') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER') ELSE has_table_privilege('merchant_auth', c.oid, 'SELECT') AND has_table_privilege('merchant_auth', c.oid, 'INSERT') AND has_table_privilege('merchant_auth', c.oid, 'UPDATE') AND NOT has_table_privilege('merchant_auth', c.oid, 'DELETE,TRUNCATE,TRIGGER,REFERENCES') END) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND c.relname IN ('user_accounts','sessions') AND c.relkind='r'"
+            identity_safe="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$identity_acl_sql")"
+            test "$identity_safe" = t || { echo "SECURITY FAILURE: identity table ACL boundary in $database"; exit 1; }
+          done
+          # Role memberships are cluster-global, absent from schema-only pg_dump.
+          # Compare membership grants after pg_dumpall globals restore, including
+          # inheritance/admin/set options, to catch lost or escalated privileges.
+          membership_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s', member.rolname, granted.rolname, m.admin_option, m.inherit_option, m.set_option), ',' ORDER BY member.rolname, granted.rolname), '') FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles granted ON granted.oid=m.roleid WHERE member.rolname IN ('merchant_auth','merchant_runtime')"
+          source_memberships="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "$membership_sql")"
+          target_memberships="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "$membership_sql")"
+          test "$source_memberships" = "$target_memberships" || { echo "SECURITY FAILURE: independent cluster service-role memberships differ"; exit 1; }
+          # The service roles must not inherit other roles: a matching but
+          # overprivileged source cluster is not a safe recovery baseline.
+          test -z "$source_memberships" || { echo "SECURITY FAILURE: service roles have unexpected role memberships"; exit 1; }
+          for role in merchant_auth merchant_runtime; do
+            source_role="$(docker exec "$source_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
+            target_role="$(docker exec "$target_container" psql -X -U postgres -d postgres -Atc "SELECT concat_ws(':', rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit) FROM pg_roles WHERE rolname='$role'")"
+            test -n "$source_role" && test "$source_role" = "$target_role" || { echo "SECURITY FAILURE: independent cluster role mismatch: $role"; exit 1; }
+            # Matching source and target roles may both be overprivileged.
+            # Check the dangerous attributes explicitly, without assuming
+            # LOGIN or INHERIT defaults for these service roles.
+            for cluster in "$source_container" "$target_container"; do
+              elevated="$(docker exec "$cluster" psql -X -U postgres -d postgres -Atc "SELECT rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication FROM pg_roles WHERE rolname='$role'")"
+              test "$elevated" = f || { echo "SECURITY FAILURE: elevated service role: $role"; exit 1; }
+            done
+          done
+          for sql in \
+            "SELECT relrowsecurity FROM pg_class WHERE oid='ms.research_candidates'::regclass" \
+            "SELECT NOT has_function_privilege('merchant_runtime', 'ms.login_account(text,uuid)', 'EXECUTE')" \
+            "SELECT NOT has_function_privilege('merchant_runtime', 'ms.lookup_session(bytea)', 'EXECUTE')" \
+            "SELECT has_function_privilege('merchant_auth', 'ms.login_account(text,uuid)', 'EXECUTE')" \
+            "SELECT has_function_privilege('merchant_auth', 'ms.lookup_session(bytea)', 'EXECUTE')" \
+            "SELECT NOT has_function_privilege(0::oid, 'ms.login_account(text,uuid)', 'EXECUTE')" \
+            "SELECT NOT has_function_privilege(0::oid, 'ms.lookup_session(bytea)', 'EXECUTE')"; do
+            for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
+              IFS=: read -r cluster database <<< "$cluster_db"
+              actual="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$sql")"
+              test "$actual" = t || { echo "SECURITY FAILURE: independent cluster RLS/auth privilege check failed in $database"; exit 1; }
+            done
+          done
+          # Compare and enforce the full SECURITY DEFINER execution boundary on
+          # both clusters. Checking only two authentication routines misses newly
+          # introduced privileged functions with accidental PUBLIC/runtime grants.
+          definer_public_sql="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege(0::oid, p.oid, 'EXECUTE')"
+          definer_runtime_sql="SELECT coalesce(string_agg(p.oid::regprocedure::text, ',' ORDER BY p.oid::regprocedure::text), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prosecdef AND has_function_privilege('merchant_runtime', p.oid, 'EXECUTE')"
+          for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
+            IFS=: read -r cluster database <<< "$cluster_db"
+            exposed="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$definer_public_sql")"
+            test -z "$exposed" || { echo "SECURITY FAILURE: independent cluster PUBLIC SECURITY DEFINER exposure: $exposed"; exit 1; }
+            allowed="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$definer_runtime_sql")"
+            test "$allowed" = "ms.has_role(ms.member_role),ms.is_member()" || { echo "SECURITY FAILURE: independent cluster runtime SECURITY DEFINER allowlist drift: $allowed"; exit 1; }
+          done
+          # Independent recovery must preserve active audit and guard triggers,
+          # not merely rows, RLS policies and SECURITY DEFINER grants.
+          # Compare full non-internal trigger inventory, definitions and enablement.
+          trigger_catalog_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s', c.relname, t.tgname, t.tgenabled, pg_get_triggerdef(t.oid)), E'\\n' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal"
+          source_triggers="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$trigger_catalog_sql")"
+          target_triggers="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$trigger_catalog_sql")"
+          test -n "$source_triggers" && test "$source_triggers" = "$target_triggers" || { echo "SECURITY FAILURE: independent cluster trigger catalog differs"; exit 1; }
+          # Parity alone is insufficient if both source and restore are insecure.
+          # Enforce the migration-defined audit/guard trigger bindings and events.
+          trigger_safety_sql="SELECT coalesce(string_agg(c.relname || ':' || t.tgname || ':' || t.tgtype::text || ':' || t.tgenabled::text, ',' ORDER BY c.relname, t.tgname), '') FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ms' AND NOT t.tgisinternal AND (t.tgname LIKE 'audit_%' OR t.tgname IN ('recommendations_guard','leads_guard','candidate_guard'))"
+          expected_safe_triggers="assessments:audit_assessments:29:O,channels:audit_channels:29:O,evidence:audit_evidence:29:O,leads:audit_leads:29:O,leads:leads_guard:23:O,merchants:audit_merchants:29:O,recommendation_evidence:audit_recommendation_evidence:29:O,recommendations:audit_recommendations:29:O,recommendations:recommendations_guard:23:O,research_candidates:audit_candidates:21:O,research_candidates:candidate_guard:23:O"
+          for cluster_db in "$source_container:merchantscope_test" "$target_container:merchantscope_restore"; do
+            IFS=: read -r cluster database <<< "$cluster_db"
+            safe_triggers="$(docker exec "$cluster" psql -X -U postgres -d "$database" -Atc "$trigger_safety_sql")"
+            test "$safe_triggers" = "$expected_safe_triggers" || { echo "SECURITY FAILURE: independent recovery audit/guard trigger enforcement drift in $database"; exit 1; }
+          done
+          # A trigger can keep its name and binding while its SECURITY DEFINER
+          # function body or search_path changes. Verify complete function
+          # definitions across the two physically independent PostgreSQL clusters.
+          function_catalog_sql="SELECT coalesce(string_agg(format('%s:%s:%s:%s:%s', p.proname, pg_get_function_identity_arguments(p.oid), p.prosecdef, coalesce(array_to_string(p.proconfig, ','), '<default>'), pg_get_functiondef(p.oid)), E'\\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)), '') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ms' AND p.prokind IN ('f','p')"
+          source_functions="$(docker exec "$source_container" psql -X -U postgres -d merchantscope_test -Atc "$function_catalog_sql")"
+          target_functions="$(docker exec "$target_container" psql -X -U postgres -d merchantscope_restore -Atc "$function_catalog_sql")"
+          test -n "$source_functions" && test "$source_functions" = "$target_functions" || { echo "SECURITY FAILURE: independent cluster function definitions or security configuration differ"; exit 1; }
+          echo "PASS: disposable independent PostgreSQL cluster roles, schema, RLS and auth grants."
+
+      - name: Upload secure synthetic UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merchantscope-secure-ui
+          path: secure-ui-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+

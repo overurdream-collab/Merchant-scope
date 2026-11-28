@@ -1,0 +1,147 @@
+name: MerchantScope CI
+on:
+  push:
+  pull_request:
+jobs:
+  workflow-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Validate all GitHub Actions workflows with actionlint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Test Python API
+        run: |
+          python -m pytest -q --ignore=tests/test_pg_restore_rls_baseline.py
+          # Run configuration regressions without requiring a live PostgreSQL service.
+          python -m pytest -q \
+            tests/test_pg_restore_rls_baseline.py::test_restored_rls_baseline_is_run_once_in_ci \
+            tests/test_pg_restore_rls_baseline.py::test_missing_postgres_dsn_fails_closed_in_github_actions \
+            tests/test_pg_restore_rls_baseline.py::test_missing_psycopg_fails_closed_in_github_actions \
+            tests/test_pg_restore_rls_baseline.py::test_general_ci_executes_offline_postgres_gate_regressions \
+            tests/test_pg_restore_rls_baseline.py::test_independent_restore_auth_function_acl_matrix
+      - name: Compile Python
+        run: python -m compileall -q app
+      - name: Validate Arabic dashboard JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ("dashboard", "secure_dashboard"):
+              page = Path(f"app/{name}.html").read_text(encoding="utf-8")
+              match = re.search(r"<script>(.*?)</script>", page, re.S)
+              assert match, f"Missing script in {name}"
+              Path(f"/tmp/merchantscope-{name}.js").write_text(match.group(1),encoding="utf-8")
+          PY
+          node --check /tmp/merchantscope-dashboard.js
+          node --check /tmp/merchantscope-secure_dashboard.js
+
+  postgres-live-security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: merchantscope_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d merchantscope_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PG_TEST_DSN: postgresql://postgres:test-password@localhost:5432/merchantscope_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL security test dependencies
+        run: pip install -r requirements-dev.txt "psycopg[binary]>=3.2,<4"
+      - name: Exercise real PostgreSQL tenant isolation, roles, schema and RLS
+        run: python -m pytest -q tests/test_pg_schema.py tests/test_pg_security_definer.py tests/test_pg_schema_ownership.py tests/test_pg_restore_rls_baseline.py
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install "playwright>=1.51,<2"
+          python -m playwright install --with-deps chromium
+      - name: Browser end-to-end smoke (synthetic data)
+        env:
+          MERCHANTSCOPE_SCREENSHOT_DIR: ui-artifacts
+        run: python tests/browser_smoke.py
+      - name: Upload synthetic UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merchantscope-ui-acceptance
+          path: ui-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  docker-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      MERCHANTSCOPE_ADMIN_TOKEN: ci-analyst-strong-secret
+      MERCHANTSCOPE_REVIEWER_TOKEN: ci-reviewer-different-secret
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - name: Build and run loopback-only pilot
+        run: docker compose up --build -d
+      - name: Check running container and public bind
+        run: |
+          for _ in $(seq 1 40); do
+            if curl --silent --fail http://127.0.0.1:8765/api/health >/tmp/ms-health.json; then
+              break
+            fi
+            sleep 2
+          done
+          grep -q '"status":"ok"' /tmp/ms-health.json
+          curl --silent --fail -H "X-Admin-Token: $MERCHANTSCOPE_ADMIN_TOKEN" http://127.0.0.1:8765/api/merchants >/tmp/ms-merchants.json
+          python - <<'PY'
+          import json
+          assert json.load(open('/tmp/ms-merchants.json')) == []
+          print('Docker local pilot startup and authenticated read: PASS')
+          PY
+          docker compose ps
+      - name: Tear down local test
+        if: always()
+        run: docker compose down --volumes
